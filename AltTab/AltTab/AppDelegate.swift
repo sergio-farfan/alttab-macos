@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
 
     private var currentWindows: [WindowInfo] = []
     private var selectedIndex: Int = 0
+    private var switcherActive: Bool = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("AltTab: applicationDidFinishLaunching")
@@ -82,12 +83,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
         currentWindows = windowModel.enumerateWindows()
         guard !currentWindows.isEmpty else { return }
         selectedIndex = min(1, currentWindows.count - 1) // start on second window (MRU)
+        switcherActive = true
 
         // Capture thumbnails asynchronously
         windowCapture.captureThumbnails(for: currentWindows) { [weak self] updatedWindows in
             guard let self = self else { return }
             self.currentWindows = updatedWindows
             DispatchQueue.main.async {
+                // Only update if switcher is still active — avoids re-showing after dismiss
+                guard self.switcherActive else { return }
                 self.switcherPanel.show(windows: self.currentWindows,
                                         selectedIndex: self.selectedIndex)
             }
@@ -110,13 +114,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
     }
 
     func hotkeyDidConfirm() {
+        guard switcherActive, !currentWindows.isEmpty,
+              selectedIndex < currentWindows.count else {
+            dismissSwitcher()
+            return
+        }
         let window = currentWindows[selectedIndex]
-        switcherPanel.dismiss()
+        dismissSwitcher()
         WindowActivator.activate(window: window)
         windowModel.promoteToFront(windowID: window.windowID)
     }
 
     func hotkeyDidCancel() {
+        dismissSwitcher()
+    }
+
+    private func dismissSwitcher() {
+        switcherActive = false
         switcherPanel.dismiss()
     }
 }
