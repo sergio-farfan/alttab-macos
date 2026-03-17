@@ -91,12 +91,21 @@ final class HotkeyManager {
     }
 
     /// The system can disable our tap if the callback takes too long. Poll to re-enable.
+    /// If the tap was disabled while the switcher was active, we missed the Option release —
+    /// force-cancel to prevent the panel from sticking.
     private func startReEnablePolling() {
-        reEnableTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            guard let tap = self?.eventTap else { return }
+        reEnableTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self, let tap = self.eventTap else { return }
             if !CGEvent.tapIsEnabled(tap: tap) {
                 NSLog("AltTab: Event tap was disabled by system, re-enabling.")
                 CGEvent.tapEnable(tap: tap, enable: true)
+                // If we were active, we missed the Option release — force cancel
+                if self.state == .active {
+                    self.state = .idle
+                    DispatchQueue.main.async { [weak self] in
+                        self?.delegate?.hotkeyDidCancel()
+                    }
+                }
             }
         }
     }
@@ -104,10 +113,16 @@ final class HotkeyManager {
     // MARK: - Event Handling
 
     fileprivate func handleEvent(_ proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // If tap is disabled, re-enable
+        // If tap is disabled, re-enable and force-cancel any active switcher
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            if state == .active {
+                state = .idle
+                DispatchQueue.main.async { [weak self] in
+                    self?.delegate?.hotkeyDidCancel()
+                }
             }
             return Unmanaged.passUnretained(event)
         }
