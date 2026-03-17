@@ -1,0 +1,20 @@
+# Xcode build artifacts
+AltTab/build/
+DerivedData/
+*.xcuserdata
+xcuserdata/
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode user-specific
+*.xcworkspace/xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
