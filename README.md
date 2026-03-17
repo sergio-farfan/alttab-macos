@@ -17,19 +17,42 @@ A lightweight macOS utility that replaces Cmd-Tab's app-level switching with **w
 - macOS 13+ (Ventura)
 - Zero dependencies, pure Swift + AppKit
 
-## Install
+## Prerequisites
 
-Requires Xcode (not just Command Line Tools).
+- **macOS 13+** (Ventura or later)
+- **Xcode** (full install from App Store, not just Command Line Tools)
+
+If Xcode is installed but not selected as the active developer directory:
 
 ```bash
-# Build and install to /Applications
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
+```
+
+## Install
+
+```bash
+git clone https://github.com/sergio-farfan/alttab-macos.git
+cd alttab-macos
+
+# Build and install to ~/Applications (no sudo required)
 ./build.sh install
 
-# Or just build
-./build.sh build
+# Or install system-wide to /Applications (requires sudo)
+sudo ./build.sh install --system
 
-# Build and launch immediately
-./build.sh run
+# Launch
+open ~/Applications/AltTab.app
+```
+
+### Other commands
+
+```bash
+./build.sh build                    # Build only (Release)
+./build.sh run                      # Build and launch from build dir
+./build.sh clean                    # Remove build artifacts
+./build.sh uninstall                # Remove from ~/Applications
+sudo ./build.sh uninstall --system  # Remove from /Applications
 ```
 
 ## Permissions
@@ -57,10 +80,11 @@ On first launch, grant these in **System Settings → Privacy & Security**:
 ## Uninstall
 
 ```bash
-./build.sh uninstall
+./build.sh uninstall                # Remove from ~/Applications
+sudo ./build.sh uninstall --system  # Remove from /Applications
 ```
 
-Or manually delete `/Applications/AltTab.app` and remove from Login Items.
+Or manually delete the `.app` from whichever location you installed to, and remove AltTab from Login Items in System Settings.
 
 ## Architecture
 
