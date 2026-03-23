@@ -7,7 +7,9 @@
 //  key hold state and Tab/Arrow/Escape keypresses. The CGEvent callback is
 //  a C function pointer bridged to Swift via Unmanaged<HotkeyManager>.
 //  Only keyDown events are swallowed; flagsChanged is always passed through
-//  to avoid breaking system modifier state.
+//  to avoid breaking system modifier state. Includes retry logic with
+//  exponential backoff for event tap creation, handling the case where the
+//  Accessibility subsystem isn't ready at login time.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
 //  Version: 1.0.0
@@ -46,9 +48,37 @@ final class HotkeyManager {
 
     // MARK: - Lifecycle
 
+    /// Maximum number of retries for event tap creation at startup.
+    private static let maxTapRetries = 10
+    /// Delay between retries, in seconds (doubles each attempt, capped at 4s).
+    private static let baseTapRetryInterval: TimeInterval = 0.5
+    private var tapRetryCount = 0
+
     func start() {
-        installEventTap()
+        if !installEventTap() {
+            scheduleRetry()
+        }
         startReEnablePolling()
+    }
+
+    /// Retry event tap creation with exponential back-off.
+    /// At login the accessibility subsystem may not be ready yet.
+    private func scheduleRetry() {
+        guard tapRetryCount < Self.maxTapRetries else {
+            NSLog("AltTab: Gave up creating event tap after \(Self.maxTapRetries) retries.")
+            return
+        }
+        let delay = min(Self.baseTapRetryInterval * pow(2.0, Double(tapRetryCount)), 4.0)
+        tapRetryCount += 1
+        NSLog("AltTab: Will retry event tap in %.1fs (attempt %d/%d)", delay, tapRetryCount, Self.maxTapRetries)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.eventTap == nil else { return }
+            if self.installEventTap() {
+                NSLog("AltTab: Event tap created on retry %d", self.tapRetryCount)
+            } else {
+                self.scheduleRetry()
+            }
+        }
     }
 
     func stop() {
@@ -66,7 +96,8 @@ final class HotkeyManager {
 
     // MARK: - Event Tap
 
-    private func installEventTap() {
+    @discardableResult
+    private func installEventTap() -> Bool {
         let mask: CGEventMask = (1 << CGEventType.flagsChanged.rawValue) |
                                 (1 << CGEventType.keyDown.rawValue)
 
@@ -81,13 +112,14 @@ final class HotkeyManager {
             userInfo: userInfo
         ) else {
             NSLog("AltTab: Failed to create event tap. Is Accessibility enabled?")
-            return
+            return false
         }
 
         eventTap = tap
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        return true
     }
 
     /// The system can disable our tap if the callback takes too long. Poll to re-enable.
@@ -95,7 +127,18 @@ final class HotkeyManager {
     /// force-cancel to prevent the panel from sticking.
     private func startReEnablePolling() {
         reEnableTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self = self, let tap = self.eventTap else { return }
+            guard let self = self else { return }
+
+            // If the tap was never created (e.g. permissions weren't ready at launch),
+            // keep trying — accessibility may have been granted in the meantime.
+            guard let tap = self.eventTap else {
+                if AXIsProcessTrusted() {
+                    NSLog("AltTab: Accessibility now trusted, retrying event tap creation.")
+                    self.installEventTap()
+                }
+                return
+            }
+
             if !CGEvent.tapIsEnabled(tap: tap) {
                 NSLog("AltTab: Event tap was disabled by system, re-enabling.")
                 CGEvent.tapEnable(tap: tap, enable: true)

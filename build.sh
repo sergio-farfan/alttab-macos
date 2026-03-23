@@ -94,10 +94,8 @@ do_install() {
     echo "Launch:"
     echo "  open ${INSTALL_DIR}/${APP_NAME}.app"
     echo ""
-    echo "First launch checklist:"
-    echo "  1. Grant Accessibility:  System Settings → Privacy & Security → Accessibility → AltTab ON"
-    echo "  2. Grant Screen Recording (optional, for live thumbnails):"
-    echo "     System Settings → Privacy & Security → Screen Recording → AltTab ON"
+    echo "First launch:"
+    echo "  Grant Accessibility:  System Settings → Privacy & Security → Accessibility → AltTab ON"
 }
 
 do_run() {

@@ -21,7 +21,8 @@ macOS Cmd-Tab switches between *applications*. AltTab switches between *windows*
 - **Option-Tab** to activate, cycle with Tab, confirm on release
 - **Shift-Tab** / Arrow keys to navigate in reverse
 - **Escape** to cancel without switching
-- Live window thumbnails via ScreenCaptureKit (app icon fallback if permission denied)
+- Window titles via Accessibility API — works for all apps without Screen Recording permission
+- App icon display with graceful fallback (no Screen Recording prompt on macOS 15+)
 - Includes minimized windows
 - MRU (most recently used) ordering with intra-app focus tracking
 - Menu bar utility — no Dock icon, no clutter
@@ -95,10 +96,11 @@ On first launch, AltTab will prompt for Accessibility access. Screen Recording i
 
 | Permission | Required | Why |
 |-----------|----------|-----|
-| **Accessibility** | Yes | CGEvent tap for global hotkey detection; AXUIElement for window management, focus tracking, and unminimize |
-| **Screen Recording** | No | Live window thumbnail capture via ScreenCaptureKit. Without it, app icons are shown instead |
+| **Accessibility** | Yes | CGEvent tap for global hotkey detection; AXUIElement for window titles, window management, focus tracking, and unminimize |
 
-Grant in: **System Settings → Privacy & Security → [Accessibility / Screen Recording]**
+Grant in: **System Settings → Privacy & Security → Accessibility**
+
+> **Note:** Screen Recording permission is **not required**. Window titles are read via the Accessibility API, and app icons are used instead of live thumbnails. This avoids the repeated "Screen & System Audio Recording" prompt on macOS 15 (Sequoia).
 
 ## Usage
 
@@ -115,9 +117,9 @@ Grant in: **System Settings → Privacy & Security → [Accessibility / Screen R
 
 ## How It Works
 
-AltTab installs a **CGEvent tap** at the session level to intercept keyboard events globally. A 3-state machine (idle → active → idle) tracks Option hold/release and Tab presses. Window enumeration combines `CGWindowListCopyWindowInfo` (on-screen windows) with `AXUIElement` queries (minimized windows). MRU order is maintained via `NSWorkspace` activation notifications and per-app `AXObserver` callbacks that track focused-window changes — including intra-app switches like Cmd-\`.
+AltTab installs a **CGEvent tap** at the session level to intercept keyboard events globally. A 3-state machine (idle → active → idle) tracks Option hold/release and Tab presses. The event tap includes retry logic with exponential backoff to handle the case where the Accessibility subsystem isn't ready at login time. Window enumeration combines `CGWindowListCopyWindowInfo` (on-screen windows) with `AXUIElement` queries (minimized windows). Window titles are read via `AXUIElement` (`kAXTitleAttribute`), which only requires Accessibility permission — no Screen Recording needed. MRU order is maintained via `NSWorkspace` activation notifications and per-app `AXObserver` callbacks that track focused-window changes — including intra-app switches like Cmd-\`.
 
-The switcher UI is a **non-activating NSPanel** (`.nonactivatingPanel` style mask) so it floats above all windows without stealing focus. Thumbnails are captured asynchronously via `SCScreenshotManager` (macOS 14+) or `CGWindowListCreateImage` (macOS 13), cached per-activation. Window activation uses `AXUIElement` to raise the specific window and unminimize if needed.
+The switcher UI is a **non-activating NSPanel** (`.nonactivatingPanel` style mask) so it floats above all windows without stealing focus. App icons are displayed for each window. Window activation uses `AXUIElement` to raise the specific window and unminimize if needed.
 
 ## Architecture
 
@@ -127,7 +129,7 @@ AltTab/AltTab/
 ├── AppDelegate.swift       # Lifecycle, menu bar status item, orchestration
 ├── HotkeyManager.swift     # CGEvent tap + idle/active state machine
 ├── WindowModel.swift       # CGWindowList + AXUIElement enumeration, MRU tracking
-├── WindowCapture.swift     # ScreenCaptureKit / CGWindowList thumbnail capture
+├── WindowCapture.swift     # Window thumbnail/icon capture with graceful fallback
 ├── SwitcherPanel.swift     # NSPanel overlay with NSVisualEffectView backdrop
 ├── ThumbnailView.swift     # Individual window cell (thumbnail + title + app name)
 ├── WindowActivator.swift   # AXUIElement window raise / unminimize / focus

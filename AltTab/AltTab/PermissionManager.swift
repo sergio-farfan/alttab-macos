@@ -46,14 +46,26 @@ final class PermissionManager {
         }
     }
 
-    /// Returns true if Screen Recording permission appears to be granted.
-    /// There's no direct API — we test by attempting a zero-size CGWindow capture.
+    /// Cached result of the Screen Recording permission probe.
+    /// Checked once at first access to avoid re-triggering the macOS 15
+    /// "Screen & System Audio Recording" prompt on every Option+Tab.
+    private static var _screenRecordingCached: Bool?
+
     static var hasScreenRecordingPermission: Bool {
+        if let cached = _screenRecordingCached { return cached }
+        let result = probeScreenRecordingPermission()
+        _screenRecordingCached = result
+        return result
+    }
+
+    /// Probes Screen Recording permission by checking if CGWindowList returns window names.
+    /// This may trigger a one-time system prompt on macOS 15+.
+    private static func probeScreenRecordingPermission() -> Bool {
         let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[CFString: Any]]
-        // If we can read window names, permission is granted
         guard let list = windowList, let first = list.first else { return false }
         return first[kCGWindowName] != nil
     }
+
 }
 
 extension Notification.Name {

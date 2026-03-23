@@ -48,12 +48,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
             hotkeyManager.start()
             NSLog("AltTab: Accessibility already granted, hotkey active")
         } else {
-            permissionManager.ensureAccessibility()
-            NotificationCenter.default.addObserver(
-                forName: .accessibilityGranted, object: nil, queue: .main
-            ) { [weak self] _ in
-                NSLog("AltTab: Accessibility granted, starting hotkey manager")
-                self?.hotkeyManager.start()
+            // At login the TCC daemon may not be ready yet, causing a false negative.
+            // Wait briefly and recheck before prompting the user.
+            NSLog("AltTab: Accessibility not yet trusted, will recheck before prompting")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self = self else { return }
+                if AXIsProcessTrusted() {
+                    NSLog("AltTab: Accessibility granted after brief wait, hotkey active")
+                    self.hotkeyManager.start()
+                } else {
+                    NSLog("AltTab: Accessibility still not trusted, prompting user")
+                    self.permissionManager.ensureAccessibility()
+                    NotificationCenter.default.addObserver(
+                        forName: .accessibilityGranted, object: nil, queue: .main
+                    ) { [weak self] _ in
+                        NSLog("AltTab: Accessibility granted, starting hotkey manager")
+                        self?.hotkeyManager.start()
+                    }
+                }
             }
         }
     }

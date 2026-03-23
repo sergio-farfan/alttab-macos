@@ -260,7 +260,12 @@ final class WindowModel {
               let w = boundsDict["Width"], let h = boundsDict["Height"],
               w > 0 && h > 0 else { return nil }
 
-        let title = info[kCGWindowName as String] as? String ?? ""
+        // kCGWindowName requires Screen Recording permission. Fall back to
+        // AXUIElement title which only needs Accessibility (already granted).
+        var title = info[kCGWindowName as String] as? String ?? ""
+        if title.isEmpty {
+            title = Self.axWindowTitle(for: windowID, pid: ownerPID)
+        }
         let bounds = CGRect(x: x, y: y, width: w, height: h)
 
         return WindowInfo(
@@ -272,6 +277,28 @@ final class WindowModel {
             isMinimized: isMinimized,
             thumbnail: nil
         )
+    }
+
+    /// Reads the window title via AXUIElement, which only requires Accessibility permission.
+    private static func axWindowTitle(for targetID: CGWindowID, pid: pid_t) -> String {
+        let axApp = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let axWindows = windowsRef as? [AXUIElement] else { return "" }
+
+        for axWindow in axWindows {
+            var wid: CGWindowID = 0
+            _ = _AXUIElementGetWindow(axWindow, &wid)
+            if wid == targetID {
+                var titleRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleRef) == .success,
+                   let title = titleRef as? String, !title.isEmpty {
+                    return title
+                }
+                break
+            }
+        }
+        return ""
     }
 }
 
