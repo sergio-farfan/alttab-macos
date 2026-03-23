@@ -8,7 +8,7 @@
 //  Recording permission by probing CGWindowListCopyWindowInfo for window names.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.0.0
+//  Version: 1.1.0
 //  Date:    2026-03-17
 //  License: MIT
 //
