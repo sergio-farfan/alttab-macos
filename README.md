@@ -21,6 +21,7 @@ macOS Cmd-Tab switches between *applications*. AltTab switches between *windows*
 - **Option-Tab** to activate, cycle with Tab, confirm on release
 - **Shift-Tab** / Arrow keys to navigate in reverse
 - **Escape** to cancel without switching
+- **Instant response** — window-raise runs off the main thread and app icons are cached, so the switcher appears immediately
 - Window titles via Accessibility API — works for all apps without Screen Recording permission
 - App icon display with graceful fallback (no Screen Recording prompt on macOS 15+)
 - Includes minimized windows
@@ -119,7 +120,7 @@ Grant in: **System Settings → Privacy & Security → Accessibility**
 
 AltTab installs a **CGEvent tap** at the session level to intercept keyboard events globally. A 3-state machine (idle → active → idle) tracks Option hold/release and Tab presses. The event tap includes retry logic with exponential backoff to handle the case where the Accessibility subsystem isn't ready at login time. Window enumeration combines `CGWindowListCopyWindowInfo` (on-screen windows) with `AXUIElement` queries (minimized windows). Window titles are read via `AXUIElement` (`kAXTitleAttribute`), which only requires Accessibility permission — no Screen Recording needed. MRU order is maintained via `NSWorkspace` activation notifications and per-app `AXObserver` callbacks that track focused-window changes — including intra-app switches like Cmd-\`.
 
-The switcher UI is a **non-activating NSPanel** (`.nonactivatingPanel` style mask) so it floats above all windows without stealing focus. App icons are displayed for each window. Window activation uses `AXUIElement` to raise the specific window and unminimize if needed.
+The switcher UI is a **non-activating NSPanel** (`.nonactivatingPanel` style mask) so it floats above all windows without stealing focus. App icons are displayed for each window, served from an in-memory cache (prewarmed at launch) so the panel paints immediately instead of resolving each icon through LaunchServices on the fly. Window activation uses `AXUIElement` to raise the specific window and unminimize if needed; that synchronous AX IPC runs on a background queue with a bounded messaging timeout, so a slow target app can't block the main thread (and stall the switcher).
 
 ## Architecture
 
@@ -128,11 +129,11 @@ AltTab/AltTab/
 ├── main.swift              # App entry point — wires NSApp delegate manually
 ├── AppDelegate.swift       # Lifecycle, menu bar status item, orchestration
 ├── HotkeyManager.swift     # CGEvent tap + idle/active state machine
-├── WindowModel.swift       # CGWindowList + AXUIElement enumeration, MRU tracking
-├── WindowCapture.swift     # Window thumbnail/icon capture with graceful fallback
+├── WindowModel.swift       # CGWindowList + AXUIElement enumeration, MRU tracking, app-icon cache
+├── WindowCapture.swift     # Icon provider (live capture disabled to avoid Screen Recording prompt)
 ├── SwitcherPanel.swift     # NSPanel overlay with NSVisualEffectView backdrop
 ├── ThumbnailView.swift     # Individual window cell (thumbnail + title + app name)
-├── WindowActivator.swift   # AXUIElement window raise / unminimize / focus
+├── WindowActivator.swift   # AXUIElement window raise / unminimize (off-main, bounded timeout)
 ├── PermissionManager.swift # Accessibility & Screen Recording permission checks
 └── PreferencesMenu.swift   # Status bar menu (Launch at Login, Quit)
 ```

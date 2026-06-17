@@ -5,6 +5,18 @@ All notable changes to AltTab will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-06-17
+
+### Fixed
+
+- Switcher latency and the grey panel shown before window icons appeared. Profiling with `sample` traced both to synchronous work on the main thread:
+  - Window activation (`WindowActivator.raiseWindow`) blocked in `AXUIElementCopyAttributeValue(kAXWindows)` — a synchronous IPC round-trip to the target app for its full window list (~75% of main-thread activation cost; worst when switching into heavy apps like browsers or IDEs). It now runs on a background queue with a bounded `AXUIElementSetMessagingTimeout`, so confirming a selection no longer blocks the UI.
+  - App icons (`NSRunningApplication.icon`) were resolved through a LaunchServices binding and disk read for every cell on every show, leaving the panel grey until icons loaded. Icons are now cached in memory — prewarmed on launch and on app-launch notifications, evicted when an app quits.
+
+### Changed
+
+- Removed the unused `CGWindowListCreateImage` thumbnail-capture code path, which became unavailable in the macOS 15 SDK and broke builds under Xcode 26.x.
+
 ## [1.1.0] - 2026-03-23
 
 ### Fixed
@@ -36,5 +48,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build/install script with `--system` flag for /Applications
 - Shift-Tab, Arrow keys, Escape, Enter, and mouse click navigation
 
+[1.1.1]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.1.1
 [1.1.0]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.1.0
 [1.0.0]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.0.0
