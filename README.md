@@ -3,6 +3,7 @@
   <img src="https://img.shields.io/badge/swift-5.9%2B-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.9+">
   <img src="https://img.shields.io/github/license/sergio-farfan/alttab-macos?style=flat-square" alt="MIT License">
   <img src="https://img.shields.io/github/v/release/sergio-farfan/alttab-macos?style=flat-square&label=version" alt="Version">
+  <img src="https://img.shields.io/github/downloads/sergio-farfan/alttab-macos/total?style=flat-square&label=downloads" alt="Downloads">
   <img src="https://img.shields.io/github/stars/sergio-farfan/alttab-macos?style=flat-square" alt="Stars">
 </p>
 
@@ -10,11 +11,44 @@
 
 **Windows-style window switcher for macOS.**
 
+<!--
+  DEMO GIF: record a ~5s screen capture of Option-Tab cycling through window
+  thumbnails, save it as Screenshots/demo.gif, then replace the <img> below with:
+    <img src="Screenshots/demo.gif" alt="AltTab in action" width="640">
+-->
 <p align="center">
   <img src="Screenshots/AltTab1.jpg" alt="AltTab menu bar menu" width="320">
 </p>
 
 macOS Cmd-Tab switches between *applications*. AltTab switches between *windows* — just like Alt-Tab on Windows. Hold Option, tap Tab to see every open window as a thumbnail, cycle through them, and release to switch.
+
+## Download
+
+**[Download the latest AltTab.dmg →](https://github.com/sergio-farfan/alttab-macos/releases/latest)**
+
+Open the `.dmg`, drag **AltTab** to **Applications**, and launch it. Grant **Accessibility** when prompted (System Settings → Privacy & Security → Accessibility).
+
+<!-- UNSIGNED-NOTE: remove this block once notarized builds ship. -->
+> This build is not yet notarized. On first launch, right-click **AltTab.app → Open**, or run `xattr -dr com.apple.quarantine /Applications/AltTab.app`.
+
+**Homebrew** *(coming soon)*:
+
+```bash
+brew install --cask sergio-farfan/tap/alttab
+```
+
+Prefer to build it yourself? See [Build from source](#build-from-source).
+
+## Why another AltTab?
+
+[`lwouis/alttab`](https://github.com/lwouis/alttab) is the feature-rich, highly configurable incumbent. This project is the deliberately minimal alternative:
+
+- **Tiny and auditable** — ~2,000 lines of pure Swift + AppKit, single purpose.
+- **Zero dependencies** — no packages, no frameworks bundled.
+- **No Screen Recording permission** — titles via the Accessibility API, app icons instead of live thumbnails (avoids the recurring macOS 15 recording prompt).
+- **Windows-style Option-Tab** semantics with menu-bar-only footprint (no Dock icon).
+
+If you want extensive customization, use lwouis/alttab. If you want something small you can read end to end, use this.
 
 ## Features
 
@@ -31,7 +65,7 @@ macOS Cmd-Tab switches between *applications*. AltTab switches between *windows*
 - Zero dependencies — pure Swift + AppKit
 - ~2,000 lines of code, single-purpose, auditable
 
-## Quick Start
+## Build from source
 
 ```bash
 git clone https://github.com/sergio-farfan/alttab-macos.git
