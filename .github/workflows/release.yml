@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build for a dry run, e.g. 1.1.1 (no Release published)'
+        required: true
+
+permissions:
+  contents: write
+
+# ---------------------------------------------------------------------------
+# Signing + notarization are DORMANT until these repository secrets are set:
+#   MACOS_CERTIFICATE_P12_BASE64  base64 of the Developer ID Application .p12
+#   MACOS_CERTIFICATE_PASSWORD    password protecting that .p12
+#   KEYCHAIN_PASSWORD             any string; password for the ephemeral keychain
+#   APPLE_TEAM_ID                 10-char Apple Developer Team ID
+#   APPLE_API_KEY_ID              App Store Connect API key id (notarytool)
+#   APPLE_API_ISSUER_ID          App Store Connect issuer id (notarytool)
+#   APPLE_API_KEY_P8_BASE64      base64 of the AuthKey_XXXX.p8
+# When MACOS_CERTIFICATE_P12_BASE64 exists, builds are signed + notarized.
+# ---------------------------------------------------------------------------
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Log toolchain
+        run: xcodebuild -version
+
+      - name: Resolve version and publish flag
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"; PUBLISH=true
+          else
+            VERSION="$INPUT_VERSION"; PUBLISH=false
+          fi
+          # Validate: digits.dots with optional pre-release suffix. Rejects any
+          # shell metacharacters, so downstream use is injection-safe.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
+            echo "Invalid version: '$VERSION'"; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=$VERSION publish=$PUBLISH"
+
+      - name: Detect signing mode
+        id: signing
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "No signing cert secret present -> building UNSIGNED."
+          fi
+
+      - name: Import signing certificate
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERT_PW: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PW: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$CERT" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "$KEYCHAIN_PW" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PW" build.keychain
+          security set-keychain-settings -lut 3600 build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$CERT_PW" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" build.keychain
+          rm -f /tmp/cert.p12
+
+      - name: Resolve signing identity
+        if: steps.signing.outputs.signed == 'true'
+        id: ident
+        run: |
+          ID=$(security find-identity -v -p codesigning build.keychain \
+               | grep "Developer ID Application" | head -1 | awk '{print $2}')
+          echo "identity=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Build, stamp, (sign,) package
+        env:
+          SIGN_IDENTITY: ${{ steps.ident.outputs.identity }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: ./scripts/package-dmg.sh "$VERSION"
+
+      - name: Notarize and staple
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          echo "$API_KEY_P8" | base64 --decode > /tmp/AuthKey.p8
+          DMG="dist/AltTab-$VERSION.dmg"
+          xcrun notarytool submit "$DMG" \
+            --key /tmp/AuthKey.p8 --key-id "$API_KEY_ID" --issuer "$API_ISSUER" --wait
+          xcrun stapler staple "$DMG"
+          rm -f /tmp/AuthKey.p8
+
+      - name: Compose release notes
+        id: notes
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          ./scripts/changelog-section.sh "$VERSION" > notes.md || echo "AltTab $VERSION" > notes.md
+          if [ "$SIGNED" != "true" ]; then
+            {
+              echo ""
+              echo "---"
+              echo "### Unsigned build"
+              echo "Not yet notarized. On first launch, right-click **AltTab.app -> Open**, or clear quarantine:"
+              echo ""
+              echo "    xattr -dr com.apple.quarantine /Applications/AltTab.app"
+            } >> notes.md
+          fi
+
+      - name: Publish GitHub Release
+        if: steps.meta.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "dist/AltTab-$VERSION.dmg" "dist/AltTab-$VERSION.dmg.sha256" --clobber
+          else
+            gh release create "$TAG" "dist/AltTab-$VERSION.dmg" "dist/AltTab-$VERSION.dmg.sha256" \
+              --title "AltTab $VERSION" --notes-file notes.md
+          fi
+
+      - name: Upload dry-run artifact
+        if: steps.meta.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AltTab-${{ steps.meta.outputs.version }}-dmg
+          path: |
+            dist/AltTab-*.dmg
+            dist/AltTab-*.dmg.sha256
