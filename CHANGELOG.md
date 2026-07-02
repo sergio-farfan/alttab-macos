@@ -5,6 +5,13 @@ All notable changes to AltTab will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-07-01
+
+### Fixed
+
+- Option-Tab dead after updating, with the Accessibility toggle in System Settings still showing ON. Unsigned distribution shipped an *unsealed* bundle (bare linker-signed arm64 slice, unsigned x86_64 slice, no `_CodeSignature`), so macOS fabricated unpredictable code identities and the TCC Accessibility grant never matched the running app. `package-dmg.sh` now applies a deterministic ad-hoc seal (`codesign --force --deep -s -`) when `SIGN_IDENTITY` is unset.
+- Because ad-hoc identities still change per release, each update legitimately re-prompts for Accessibility once. Documented in the README (Troubleshooting) together with the `tccutil reset Accessibility com.alttab.app` recovery for grants stuck on an old build. A stable Developer ID signature (supported by the release workflow once certificate secrets are configured) removes the re-prompt entirely.
+
 ## [1.2.0] - 2026-07-01
 
 ### Added
@@ -84,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build/install script with `--system` flag for /Applications
 - Shift-Tab, Arrow keys, Escape, Enter, and mouse click navigation
 
+[1.2.1]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.2.1
 [1.2.0]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.2.0
 [1.1.2]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.1.2
 [1.1.1]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.1.1

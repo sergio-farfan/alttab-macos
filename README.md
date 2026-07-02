@@ -140,6 +140,17 @@ Grant in: **System Settings → Privacy & Security → Accessibility**
 
 > **Note:** Screen Recording permission is **not required**. Window titles are read via the Accessibility API, and app icons are used instead of live thumbnails. This avoids the repeated "Screen & System Audio Recording" prompt on macOS 15 (Sequoia). Enabling **Show Window Previews** in the status menu is the only thing that requests Screen Recording; with the toggle off (the default) the API is never touched.
 
+### Option-Tab stops working after an update
+
+macOS pins each Accessibility grant to the code identity of one specific build. Ad-hoc-signed releases get a new identity every build, so after updating AltTab the toggle in System Settings still shows **ON** while the new binary is silently denied. Fix:
+
+```bash
+tccutil reset Accessibility com.alttab.app
+open ~/Applications/AltTab.app   # or /Applications — grant again when prompted
+```
+
+(Equivalently: remove AltTab from the Accessibility list with the **−** button and re-add it.) This re-prompt-per-update goes away once releases are signed with a stable Developer ID certificate.
+
 ## Usage
 
 | Shortcut | Action |

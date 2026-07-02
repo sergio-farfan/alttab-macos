@@ -44,7 +44,16 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
     --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP"
   codesign --verify --strict --verbose=2 "$APP"
 else
-  echo ">> SIGN_IDENTITY not set; leaving app unsigned."
+  # Without a full signature the bundle ships unsealed (linker-signed arm64
+  # slice only, x86_64 slice unsigned, no _CodeSignature). macOS then
+  # fabricates unpredictable code identities and TCC Accessibility grants
+  # never match the running app. An ad-hoc seal makes the identity
+  # deterministic; the grant still re-prompts once per release (ad-hoc
+  # cdhashes change per build) until SIGN_IDENTITY provides a stable
+  # Developer ID.
+  echo ">> SIGN_IDENTITY not set; applying ad-hoc seal..."
+  codesign --force --deep -s - --identifier com.alttab.app "$APP"
+  codesign --verify --strict "$APP"
 fi
 
 echo ">> Packaging DMG..."
