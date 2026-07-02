@@ -44,6 +44,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           if [ "$EVENT_NAME" = "push" ]; then
             VERSION="${GITHUB_REF_NAME#v}"; PUBLISH=true
@@ -55,9 +56,20 @@ jobs:
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$'; then
             echo "Invalid version: '$VERSION'"; exit 1
           fi
+          # Derive a monotonic CFBundleVersion from the release version so the
+          # shipped build number tracks the version (major*10000+minor*100+patch),
+          # tie-broken by the workflow run number for per-build uniqueness on
+          # re-runs of the same tag. Any pre-release suffix is dropped for the code.
+          CORE="${VERSION%%-*}"
+          MAJOR="${CORE%%.*}"
+          REST="${CORE#*.}"
+          MINOR="${REST%%.*}"
+          PATCH="${REST#*.}"
+          BUILD="$(( MAJOR * 10000 + MINOR * 100 + PATCH )).${RUN_NUMBER}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
-          echo "Resolved version=$VERSION publish=$PUBLISH"
+          echo "Resolved version=$VERSION build=$BUILD publish=$PUBLISH"
 
       - name: Detect signing mode
         id: signing
@@ -98,7 +110,7 @@ jobs:
       - name: Build, stamp, (sign,) package
         env:
           SIGN_IDENTITY: ${{ steps.ident.outputs.identity }}
-          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_NUMBER: ${{ steps.meta.outputs.build }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: ./scripts/package-dmg.sh "$VERSION"
 
