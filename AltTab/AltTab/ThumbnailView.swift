@@ -23,10 +23,23 @@ final class ThumbnailView: NSView {
         didSet { updateAppearance() }
     }
 
+    /// Secondary tone for the app name that stays dynamic across appearance
+    /// changes — withAlphaComponent() on a catalog color resolves and freezes
+    /// it at call time, which would pin the wrong theme's color (cells are
+    /// constructed before joining the panel's forced-appearance hierarchy).
+    private static let appNameColor = NSColor(name: nil) { appearance in
+        var color = NSColor.labelColor
+        appearance.performAsCurrentDrawingAppearance {
+            color = NSColor.labelColor.withAlphaComponent(0.78)
+        }
+        return color
+    }
+
     private let imageView: NSImageView
     private let titleLabel: NSTextField
     private let appLabel: NSTextField
     private let selectionBorder: NSView
+    private let labelBackdrop: NSBox
     private let thumbnailHeight: CGFloat
 
     init(windowInfo: WindowInfo, width: CGFloat, height: CGFloat) {
@@ -36,6 +49,7 @@ final class ThumbnailView: NSView {
         titleLabel = NSTextField(labelWithString: "")
         appLabel = NSTextField(labelWithString: "")
         selectionBorder = NSView()
+        labelBackdrop = NSBox()
 
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
@@ -60,6 +74,18 @@ final class ThumbnailView: NSView {
         selectionBorder.translatesAutoresizingMaskIntoConstraints = false
         addSubview(selectionBorder)
 
+        // Solid theme-paired backing so label contrast never depends on the
+        // wallpaper showing through the translucent panel (WCAG AA, spec
+        // 2026-07-02). NSBox is layer-backed, which also opts the labels out
+        // of NSVisualEffectView vibrancy so they render solid.
+        labelBackdrop.boxType = .custom
+        labelBackdrop.titlePosition = .noTitle
+        labelBackdrop.fillColor = .windowBackgroundColor
+        labelBackdrop.borderWidth = 0
+        labelBackdrop.cornerRadius = 6
+        labelBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(labelBackdrop)
+
         // Thumbnail image
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
@@ -71,7 +97,7 @@ final class ThumbnailView: NSView {
 
         // Window title
         titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        titleLabel.textColor = .white
+        titleLabel.textColor = .labelColor
         titleLabel.alignment = .center
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
@@ -80,7 +106,7 @@ final class ThumbnailView: NSView {
 
         // App name
         appLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
-        appLabel.textColor = NSColor.white.withAlphaComponent(0.6)
+        appLabel.textColor = Self.appNameColor
         appLabel.alignment = .center
         appLabel.lineBreakMode = .byTruncatingTail
         appLabel.maximumNumberOfLines = 1
@@ -114,6 +140,12 @@ final class ThumbnailView: NSView {
             // Fixed size
             widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: height),
+
+            // Label backing strip wraps both labels with small padding
+            labelBackdrop.topAnchor.constraint(equalTo: titleLabel.topAnchor, constant: -3),
+            labelBackdrop.bottomAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 3),
+            labelBackdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            labelBackdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
         ])
     }
 
@@ -131,6 +163,21 @@ final class ThumbnailView: NSView {
                 imageView.alphaValue = 0.7
             }
         }
+
+        #if DEBUG
+        // Regression tripwire for the WCAG AA guarantee (spec 2026-07-02).
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if let bg = NSColor.windowBackgroundColor.usingColorSpace(.sRGB),
+               let fg = NSColor.labelColor.usingColorSpace(.sRGB) {
+                let ratio = WCAGContrast.contrastRatio(
+                    text: SRGB(r: fg.redComponent, g: fg.greenComponent,
+                               b: fg.blueComponent, a: fg.alphaComponent),
+                    background: SRGB(r: bg.redComponent, g: bg.greenComponent,
+                                     b: bg.blueComponent, a: bg.alphaComponent))
+                assert(ratio >= 4.5, "Switcher label contrast fell below WCAG AA: \(ratio)")
+            }
+        }
+        #endif
     }
 
     /// Replaces the app-icon placeholder with a captured window preview.
@@ -140,12 +187,14 @@ final class ThumbnailView: NSView {
     }
 
     private func updateAppearance() {
-        if isSelected {
-            selectionBorder.layer?.borderColor = NSColor.controlAccentColor.cgColor
-            layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
-        } else {
-            selectionBorder.layer?.borderColor = NSColor.clear.cgColor
-            layer?.backgroundColor = NSColor.clear.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if isSelected {
+                selectionBorder.layer?.borderColor = NSColor.controlAccentColor.cgColor
+                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+            } else {
+                selectionBorder.layer?.borderColor = NSColor.clear.cgColor
+                layer?.backgroundColor = NSColor.clear.cgColor
+            }
         }
     }
 
@@ -168,7 +217,9 @@ final class ThumbnailView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         if !isSelected {
-            layer?.backgroundColor = NSColor.white.withAlphaComponent(0.05).cgColor
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            }
         }
     }
 
