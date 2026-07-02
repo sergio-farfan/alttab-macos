@@ -5,7 +5,7 @@
 //  The overlay UI that displays window thumbnails in a horizontal strip.
 //  Built as an NSPanel with .nonactivatingPanel style mask so it floats
 //  above all windows without stealing focus — critical for the Option-release
-//  activation flow. Uses NSVisualEffectView with .hudWindow material for
+//  activation flow. Uses NSVisualEffectView with .popover material (adapts to the OS light/dark appearance) for
 //  the semi-transparent backdrop, and an NSScrollView wrapping a horizontal
 //  NSStackView of ThumbnailView cells. Appears centered on the screen that
 //  contains the mouse pointer. Thumbnail clicks are reported through the
@@ -119,12 +119,15 @@ final class SwitcherPanel: NSPanel {
         // Build new
         for (index, windowInfo) in windows.enumerated() {
             let view = ThumbnailView(windowInfo: windowInfo, width: itemWidth, height: itemHeight)
-            view.isSelected = (index == selectedIndex)
             view.onClicked = { [weak self] in
                 self?.handleClick(index: index)
             }
+            // Join the hierarchy before setting selection: isSelected resolves
+            // and freezes CGColors via effectiveAppearance, which only reflects
+            // the panel's forced appearance once the view is parented.
             stackView.addArrangedSubview(view)
             thumbnailViews.append(view)
+            view.isSelected = (index == selectedIndex)
         }
 
         // Size and position the panel on the screen containing the mouse.
