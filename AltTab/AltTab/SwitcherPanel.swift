@@ -25,6 +25,9 @@ final class SwitcherPanel: NSPanel {
     /// Called with the cell index when the user clicks a thumbnail.
     var onWindowClicked: ((Int) -> Void)?
 
+    /// UserDefaults key for the appearance override: absent/"system", "light", or "dark".
+    static let appearanceDefaultsKey = "AppearanceOverride"
+
     private let itemWidth: CGFloat = 180
     private let itemHeight: CGFloat = 160
     private let itemSpacing: CGFloat = 12
@@ -62,7 +65,9 @@ final class SwitcherPanel: NSPanel {
 
     private func setupUI() {
         let backdrop = NSVisualEffectView()
-        backdrop.material = .hudWindow
+        // .popover adapts to light/dark and automatically goes opaque when
+        // the user enables "Reduce transparency" (Accessibility).
+        backdrop.material = .popover
         backdrop.blendingMode = .behindWindow
         backdrop.state = .active
         backdrop.wantsLayer = true
@@ -103,6 +108,7 @@ final class SwitcherPanel: NSPanel {
     // MARK: - Public API
 
     func show(windows: [WindowInfo], selectedIndex: Int) {
+        applyAppearancePreference()
         self.selectedIndex = selectedIndex
 
         // Clear old
@@ -164,6 +170,15 @@ final class SwitcherPanel: NSPanel {
     }
 
     // MARK: - Private
+
+    /// Applies the user's appearance preference; nil follows the OS theme.
+    private func applyAppearancePreference() {
+        switch UserDefaults.standard.string(forKey: Self.appearanceDefaultsKey) {
+        case "light": appearance = NSAppearance(named: .aqua)
+        case "dark": appearance = NSAppearance(named: .darkAqua)
+        default: appearance = nil
+        }
+    }
 
     private func scrollToSelected() {
         guard selectedIndex < thumbnailViews.count else { return }
