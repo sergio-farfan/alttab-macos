@@ -21,3 +21,7 @@ xcuserdata/
 build/
 dist/
 docs/superpowers/
+
+# Swift Package Manager (unit-test harness)
+.build/
+.swiftpm/

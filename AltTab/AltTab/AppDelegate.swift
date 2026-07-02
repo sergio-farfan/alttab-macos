@@ -4,12 +4,15 @@
 //
 //  Application lifecycle and orchestration. Sets up the menu bar status item,
 //  manages permissions, and coordinates the hotkey manager, window model,
-//  thumbnail capture, and switcher panel. Implements HotkeyDelegate to
-//  respond to Option-Tab state machine transitions.
+//  preview capture, and switcher panel. Implements HotkeyDelegate to respond
+//  to Option-Tab state machine transitions. Activation shows the cached
+//  window list instantly, then reconciles against a fresh gather off the
+//  main thread; async completions are guarded by a session epoch so a stale
+//  refresh or preview can never touch a newer switcher session.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.1.0
-//  Date:    2026-03-17
+//  Version: 1.2.0
+//  Date:    2026-07-01
 //  License: MIT
 //
 
@@ -29,6 +32,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
     private var currentWindows: [WindowInfo] = []
     private var selectedIndex: Int = 0
     private var switcherActive: Bool = false
+    /// Incremented on every activation; async completions (refresh, previews)
+    /// belonging to an older session are dropped.
+    private var switchSession: Int = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("AltTab: applicationDidFinishLaunching")
@@ -40,6 +46,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
         windowModel = WindowModel()
         windowCapture = WindowCapture()
         switcherPanel = SwitcherPanel()
+        switcherPanel.onWindowClicked = { [weak self] index in
+            guard let self = self, self.switcherActive, index < self.currentWindows.count else { return }
+            self.selectedIndex = index
+            // Option may still be held — end the tap session so its release
+            // doesn't re-confirm and Tab can start a fresh session.
+            self.hotkeyManager.cancelSession()
+            self.hotkeyDidConfirm()
+        }
 
         hotkeyManager = HotkeyManager()
         hotkeyManager.delegate = self
@@ -92,35 +106,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
     // MARK: - HotkeyDelegate
 
     func hotkeyDidActivate() {
-        currentWindows = windowModel.enumerateWindows()
-        guard !currentWindows.isEmpty else { return }
+        switchSession += 1
+        let session = switchSession
+
+        currentWindows = windowModel.windowsFromCache()
+        guard !currentWindows.isEmpty else {
+            // Nothing to show — end the tap session so Tab isn't swallowed dead.
+            hotkeyManager.cancelSession()
+            return
+        }
         selectedIndex = min(1, currentWindows.count - 1) // start on second window (MRU)
         switcherActive = true
-
-        // Capture thumbnails asynchronously
-        windowCapture.captureThumbnails(for: currentWindows) { [weak self] updatedWindows in
-            guard let self = self else { return }
-            self.currentWindows = updatedWindows
-            DispatchQueue.main.async {
-                // Only update if switcher is still active — avoids re-showing after dismiss
-                guard self.switcherActive else { return }
-                self.switcherPanel.show(windows: self.currentWindows,
-                                        selectedIndex: self.selectedIndex)
-            }
-        }
-
-        // Show immediately with placeholder icons
         switcherPanel.show(windows: currentWindows, selectedIndex: selectedIndex)
+
+        // Reconcile against a fresh gather off the main thread.
+        windowModel.refreshWindows { [weak self] fresh in
+            guard let self = self, self.switcherActive, self.switchSession == session else { return }
+            self.reconcile(with: fresh)
+            self.startPreviewCapture(session: session)
+        }
     }
 
     func hotkeyDidCycleNext() {
-        guard !currentWindows.isEmpty else { return }
+        guard switcherActive, !currentWindows.isEmpty else { return }
         selectedIndex = (selectedIndex + 1) % currentWindows.count
         switcherPanel.updateSelection(index: selectedIndex)
     }
 
     func hotkeyDidCyclePrevious() {
-        guard !currentWindows.isEmpty else { return }
+        guard switcherActive, !currentWindows.isEmpty else { return }
         selectedIndex = (selectedIndex - 1 + currentWindows.count) % currentWindows.count
         switcherPanel.updateSelection(index: selectedIndex)
     }
@@ -134,15 +148,58 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
         let window = currentWindows[selectedIndex]
         dismissSwitcher()
         WindowActivator.activate(window: window)
-        windowModel.promoteToFront(windowID: window.windowID)
+        windowModel.noteExplicitActivation(pid: window.ownerPID, windowID: window.windowID)
     }
 
     func hotkeyDidCancel() {
         dismissSwitcher()
     }
 
+    // MARK: - Refresh & Previews
+
+    /// Applies a freshly gathered window list to an active switcher: carries
+    /// over captured previews, keeps the selection on the same window, and
+    /// rebuilds the panel only if the window set or order actually changed.
+    private func reconcile(with fresh: [WindowInfo]) {
+        guard !fresh.isEmpty else {
+            hotkeyManager.cancelSession()
+            dismissSwitcher()
+            return
+        }
+
+        let thumbnails = Dictionary(currentWindows.compactMap { window in window.thumbnail.map { (window.windowID, $0) } },
+                                    uniquingKeysWith: { first, _ in first })
+        var updated = fresh
+        for index in updated.indices {
+            updated[index].thumbnail = thumbnails[updated[index].windowID]
+        }
+
+        let selectedID = currentWindows.indices.contains(selectedIndex) ? currentWindows[selectedIndex].windowID : nil
+        let changed = updated.map { $0.windowID } != currentWindows.map { $0.windowID }
+        currentWindows = updated
+        guard changed else { return }
+
+        if let id = selectedID, let index = updated.firstIndex(where: { $0.windowID == id }) {
+            selectedIndex = index
+        } else {
+            selectedIndex = min(selectedIndex, updated.count - 1)
+        }
+        switcherPanel.show(windows: updated, selectedIndex: selectedIndex)
+    }
+
+    private func startPreviewCapture(session: Int) {
+        windowCapture.capturePreviews(for: currentWindows) { [weak self] windowID, image in
+            guard let self = self, self.switcherActive, self.switchSession == session else { return }
+            if let index = self.currentWindows.firstIndex(where: { $0.windowID == windowID }) {
+                self.currentWindows[index].thumbnail = image
+            }
+            self.switcherPanel.updateThumbnail(windowID: windowID, image: image)
+        }
+    }
+
     private func dismissSwitcher() {
         switcherActive = false
+        windowCapture.cancel()
         switcherPanel.dismiss()
     }
 }

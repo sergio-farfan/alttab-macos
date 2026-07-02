@@ -38,7 +38,13 @@ enum WindowActivator {
 
         // Bring the owning app forward on the main thread — this is an AppKit call and is
         // cheap (~1% of activation cost); AppKit is not safe to touch off the main thread.
-        app.activate(options: [.activateIgnoringOtherApps])
+        // activateIgnoringOtherApps is deprecated on macOS 14+, where plain activate()
+        // has the same effect for a user-initiated switch.
+        if #available(macOS 14.0, *) {
+            app.activate()
+        } else {
+            app.activate(options: [.activateIgnoringOtherApps])
+        }
 
         // The expensive part — synchronous AX IPC to fetch the app's window list and raise
         // the target — runs off the main thread.

@@ -2,17 +2,26 @@
 //  WindowModel.swift
 //  AltTab — Windows-style Window Switcher for macOS
 //
-//  Window enumeration and MRU (most recently used) tracking. Discovers all
-//  user windows via CGWindowListCopyWindowInfo for on-screen windows and
-//  AXUIElement queries for minimized windows. Maintains MRU order using
-//  NSWorkspace activation notifications and per-app AXObservers that track
-//  intra-app focused-window changes (e.g., Cmd-` between two Terminal windows).
-//  Uses the private _AXUIElementGetWindow SPI to bridge between AXUIElement
-//  and CGWindowID — the standard approach for macOS window managers.
+//  Window discovery and MRU (most recently used) tracking. Discovers on-screen
+//  windows via CGWindowListCopyWindowInfo, then makes a single Accessibility
+//  pass per application that fills in titles (kCGWindowName needs Screen
+//  Recording; AX titles only need Accessibility) and finds windows the CG
+//  list can't see: minimized, ⌘H-hidden apps, and other Spaces. Every AX call
+//  is bounded by a messaging timeout so one wedged app can't stall the
+//  switcher (the AX default is ~6 seconds per call).
+//
+//  Enumeration is split so the switcher opens instantly: windowsFromCache()
+//  serves the last gathered list re-sorted by current MRU on the main thread,
+//  while refreshWindows() gathers a fresh list off the main thread and
+//  reconciles on completion. MRU order is maintained by NSWorkspace activation
+//  notifications and per-app AXObservers that track intra-app focused-window
+//  changes (e.g. Cmd-` between two Terminal windows). Uses the private
+//  _AXUIElementGetWindow SPI to bridge AXUIElement to CGWindowID — the
+//  standard approach for macOS window managers.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.1.0
-//  Date:    2026-03-17
+//  Version: 1.2.0
+//  Date:    2026-07-01
 //  License: MIT
 //
 
@@ -25,7 +34,7 @@ struct WindowInfo {
     let windowID: CGWindowID
     let ownerPID: pid_t
     let ownerName: String
-    let windowTitle: String
+    var windowTitle: String
     let bounds: CGRect
     let isMinimized: Bool
     var thumbnail: NSImage?
@@ -76,11 +85,25 @@ final class AppIconCache {
 
 // MARK: - WindowModel
 
+/// All state (MRU order, cache, pending activation, observers) is confined to the
+/// main thread; only the stateless gather step runs on the background queue.
 final class WindowModel {
 
-    /// MRU-ordered list of window IDs. Front of array = most recently used.
-    private var mruOrder: [CGWindowID] = []
-    private let selfBundleID = Bundle.main.bundleIdentifier ?? ""
+    private var mru = MRUOrder()
+    private var cachedWindows: [WindowInfo] = []
+    private let selfPID = ProcessInfo.processInfo.processIdentifier
+
+    /// Explicit activation in flight: the didActivateApplication notification for
+    /// this PID must promote this window, not whatever kAXFocusedWindow returns
+    /// while the off-main AX raise is still landing.
+    private var pendingActivation: (pid: pid_t, windowID: CGWindowID, at: Date)?
+    private static let pendingActivationWindow: TimeInterval = 2.0
+
+    /// Upper bound (seconds) on a single AX message. Timeouts are per-element,
+    /// so it must be applied to both app and window elements.
+    private static let axMessagingTimeout: Float = 0.25
+
+    private let gatherQueue = DispatchQueue(label: "com.alttab.window-gather", qos: .userInitiated)
 
     /// Per-PID AXObservers for intra-app window focus tracking.
     private var axObservers: [pid_t: AXObserver] = [:]
@@ -91,108 +114,185 @@ final class WindowModel {
         observeAppLifecycle()
         installAXObserversForRunningApps()
         prewarmIcons()
+        refreshWindows { _ in } // warm the cache so the first Option-Tab is instant
     }
 
     deinit {
         removeAllAXObservers()
     }
 
-    // MARK: - Enumerate
+    // MARK: - Enumeration API (main thread)
 
-    /// Returns all user windows, ordered by MRU.
-    func enumerateWindows() -> [WindowInfo] {
+    /// Returns the last gathered window list re-sorted by current MRU. Gathers
+    /// synchronously only when the cache is empty (first use before the warm-up
+    /// completes). Follow with refreshWindows() to reconcile against reality.
+    func windowsFromCache() -> [WindowInfo] {
+        if cachedWindows.isEmpty {
+            cachedWindows = Self.gatherWindows(regularApps: Self.regularAppsSnapshot(), selfPID: selfPID)
+            mru.sync(with: cachedWindows.map { $0.windowID })
+        }
+        return mru.sorted(cachedWindows) { $0.windowID }
+    }
+
+    /// Gathers a fresh window list off the main thread, then caches, sorts, and
+    /// completes on the main thread.
+    func refreshWindows(completion: @escaping ([WindowInfo]) -> Void) {
+        let apps = Self.regularAppsSnapshot() // NSWorkspace snapshot taken on main
+        let selfPID = self.selfPID
+        gatherQueue.async {
+            let gathered = Self.gatherWindows(regularApps: apps, selfPID: selfPID)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.cachedWindows = gathered
+                self.mru.sync(with: gathered.map { $0.windowID })
+                completion(self.mru.sorted(gathered) { $0.windowID })
+            }
+        }
+    }
+
+    // MARK: - Gathering (stateless, any thread)
+
+    private struct AppRef {
+        let pid: pid_t
+        let name: String
+    }
+
+    private static func regularAppsSnapshot() -> [AppRef] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .map { AppRef(pid: $0.processIdentifier, name: $0.localizedName ?? "Unknown") }
+    }
+
+    private static func gatherWindows(regularApps: [AppRef], selfPID: pid_t) -> [WindowInfo] {
         var windows: [WindowInfo] = []
         var seenIDs = Set<CGWindowID>()
+        var needsTitle: [CGWindowID: Int] = [:] // windowID → index into windows
 
-        // 1. On-screen windows from CGWindowList
+        // 1. On-screen windows (any app, current Space) from CGWindowList.
         if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                       kCGNullWindowID) as? [[String: Any]] {
             for info in infoList {
-                guard let window = parseWindowInfo(info, isMinimized: false) else { continue }
-                if seenIDs.contains(window.windowID) { continue }
+                guard let window = parseWindowInfo(info) else { continue }
+                guard window.ownerPID != selfPID, !seenIDs.contains(window.windowID) else { continue }
                 seenIDs.insert(window.windowID)
+                if window.windowTitle.isEmpty {
+                    needsTitle[window.windowID] = windows.count
+                }
                 windows.append(window)
             }
         }
 
-        // 2. Minimized windows via AXUIElement (not in CG list)
-        let runningApps = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular
+        // 2. One AX pass per app: titles for on-screen windows, plus discovery of
+        //    minimized, hidden-app, and other-Space windows. Covers regular apps
+        //    and any non-regular app that owns an on-screen window.
+        let regularPIDs = Set(regularApps.map { $0.pid })
+        var appNames = Dictionary(regularApps.map { ($0.pid, $0.name) },
+                                  uniquingKeysWith: { first, _ in first })
+        for window in windows where appNames[window.ownerPID] == nil {
+            appNames[window.ownerPID] = window.ownerName
         }
-        for app in runningApps {
-            let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        var axPIDs = regularPIDs.union(windows.map { $0.ownerPID })
+        axPIDs.remove(selfPID)
+
+        for pid in axPIDs {
+            let axApp = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(axApp, axMessagingTimeout)
             var windowsRef: CFTypeRef?
             guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
                   let axWindows = windowsRef as? [AXUIElement] else { continue }
 
             for axWindow in axWindows {
-                var minimizedRef: CFTypeRef?
-                guard AXUIElementCopyAttributeValue(axWindow, kAXMinimizedAttribute as CFString, &minimizedRef) == .success,
-                      let isMin = minimizedRef as? Bool, isMin else { continue }
-
-                var titleRef: CFTypeRef?
-                AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleRef)
-                let title = (titleRef as? String) ?? ""
-
-                // Get CGWindowID for this AXUIElement window
+                AXUIElementSetMessagingTimeout(axWindow, axMessagingTimeout)
                 var windowID: CGWindowID = 0
                 _ = _AXUIElementGetWindow(axWindow, &windowID)
-                guard windowID != 0, !seenIDs.contains(windowID) else { continue }
-                seenIDs.insert(windowID)
+                guard windowID != 0 else { continue }
 
-                let windowInfo = WindowInfo(
-                    windowID: windowID,
-                    ownerPID: app.processIdentifier,
-                    ownerName: app.localizedName ?? "Unknown",
-                    windowTitle: title,
-                    bounds: .zero,
-                    isMinimized: true,
-                    thumbnail: nil
-                )
-                windows.append(windowInfo)
+                if let index = needsTitle[windowID] {
+                    let title = copyString(axWindow, kAXTitleAttribute)
+                    if !title.isEmpty {
+                        windows[index].windowTitle = title
+                    }
+                    needsTitle[windowID] = nil
+                } else if !seenIDs.contains(windowID), regularPIDs.contains(pid) {
+                    // Off-screen: minimized, ⌘H-hidden app, or another Space.
+                    let isMinimized = copyBool(axWindow, kAXMinimizedAttribute) ?? false
+                    if !isMinimized {
+                        // Only standard windows — skips palettes, sheets, popovers.
+                        guard copyString(axWindow, kAXSubroleAttribute) == kAXStandardWindowSubrole as String else { continue }
+                    }
+                    seenIDs.insert(windowID)
+                    windows.append(WindowInfo(
+                        windowID: windowID,
+                        ownerPID: pid,
+                        ownerName: appNames[pid] ?? "Unknown",
+                        windowTitle: copyString(axWindow, kAXTitleAttribute),
+                        bounds: .zero,
+                        isMinimized: isMinimized,
+                        thumbnail: nil
+                    ))
+                }
             }
-        }
-
-        // 3. Remove our own windows
-        windows.removeAll { $0.ownerName == "AltTab" || $0.ownerPID == ProcessInfo.processInfo.processIdentifier }
-
-        // 4. Sort by MRU
-        pruneMRU(validIDs: Set(windows.map { $0.windowID }))
-        windows.sort { a, b in
-            let idxA = mruOrder.firstIndex(of: a.windowID) ?? Int.max
-            let idxB = mruOrder.firstIndex(of: b.windowID) ?? Int.max
-            return idxA < idxB
         }
 
         return windows
     }
 
-    // MARK: - MRU Management
+    private static func parseWindowInfo(_ info: [String: Any]) -> WindowInfo? {
+        guard let windowID = info[kCGWindowNumber as String] as? CGWindowID,
+              let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+              let ownerName = info[kCGWindowOwnerName as String] as? String,
+              let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+              let boundsDict = info[kCGWindowBounds as String] as? [String: CGFloat],
+              let x = boundsDict["X"], let y = boundsDict["Y"],
+              let w = boundsDict["Width"], let h = boundsDict["Height"],
+              w > 0 && h > 0 else { return nil }
 
-    func promoteToFront(windowID: CGWindowID) {
-        mruOrder.removeAll { $0 == windowID }
-        mruOrder.insert(windowID, at: 0)
+        // kCGWindowName requires Screen Recording; empty titles are filled from
+        // the AX pass, which only needs Accessibility.
+        return WindowInfo(
+            windowID: windowID,
+            ownerPID: ownerPID,
+            ownerName: ownerName,
+            windowTitle: info[kCGWindowName as String] as? String ?? "",
+            bounds: CGRect(x: x, y: y, width: w, height: h),
+            isMinimized: false,
+            thumbnail: nil
+        )
+    }
+
+    private static func copyString(_ element: AXUIElement, _ attribute: String) -> String {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success else { return "" }
+        return ref as? String ?? ""
+    }
+
+    private static func copyBool(_ element: AXUIElement, _ attribute: String) -> Bool? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success else { return nil }
+        return ref as? Bool
+    }
+
+    // MARK: - MRU Management (main thread)
+
+    /// Records that the user explicitly switched to a window, so the upcoming
+    /// app-activation notification can't demote it (the notification may read
+    /// kAXFocusedWindow before the off-main AX raise lands).
+    func noteExplicitActivation(pid: pid_t, windowID: CGWindowID) {
+        mru.promoteToFront(windowID)
+        pendingActivation = (pid: pid, windowID: windowID, at: Date())
     }
 
     private func seedMRUFromStackingOrder() {
         guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                         kCGNullWindowID) as? [[String: Any]] else { return }
-        mruOrder = infoList.compactMap { info -> CGWindowID? in
+        mru.seed(infoList.compactMap { info -> CGWindowID? in
             guard let id = info[kCGWindowNumber as String] as? CGWindowID,
                   let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
                   let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
                   let w = bounds["Width"], let h = bounds["Height"],
                   w > 0 && h > 0 else { return nil }
             return id
-        }
-    }
-
-    private func pruneMRU(validIDs: Set<CGWindowID>) {
-        mruOrder.removeAll { !validIDs.contains($0) }
-        // Add any new windows not yet in MRU at the end
-        for id in validIDs where !mruOrder.contains(id) {
-            mruOrder.append(id)
-        }
+        })
     }
 
     private func observeAppActivation() {
@@ -207,14 +307,25 @@ final class WindowModel {
 
     /// When an app is activated, promote its frontmost window in MRU.
     private func promoteAppWindows(pid: pid_t) {
+        if let pending = pendingActivation, pending.pid == pid {
+            pendingActivation = nil
+            if Date().timeIntervalSince(pending.at) < Self.pendingActivationWindow {
+                mru.promoteToFront(pending.windowID)
+                return
+            }
+        }
+
         let axApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(axApp, Self.axMessagingTimeout)
         var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success else { return }
-        let focusedWindow = focusedRef as! AXUIElement
+        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success,
+              let focused = focusedRef,
+              CFGetTypeID(focused) == AXUIElementGetTypeID() else { return }
+        let focusedWindow = focused as! AXUIElement
         var windowID: CGWindowID = 0
         _ = _AXUIElementGetWindow(focusedWindow, &windowID)
         if windowID != 0 {
-            promoteToFront(windowID: windowID)
+            mru.promoteToFront(windowID)
         }
     }
 
@@ -223,7 +334,7 @@ final class WindowModel {
     /// Install AXObservers on all currently running regular apps.
     private func installAXObserversForRunningApps() {
         let apps = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+            $0.activationPolicy == .regular && $0.processIdentifier != selfPID
         }
         for app in apps {
             installAXObserver(for: app.processIdentifier)
@@ -277,7 +388,7 @@ final class WindowModel {
         var windowID: CGWindowID = 0
         _ = _AXUIElementGetWindow(element, &windowID)
         if windowID != 0 {
-            promoteToFront(windowID: windowID)
+            mru.promoteToFront(windowID)
         }
     }
 
@@ -299,59 +410,6 @@ final class WindowModel {
             self?.removeAXObserver(for: app.processIdentifier)
             AppIconCache.shared.evict(pid: app.processIdentifier)
         }
-    }
-
-    // MARK: - Helpers
-
-    private func parseWindowInfo(_ info: [String: Any], isMinimized: Bool) -> WindowInfo? {
-        guard let windowID = info[kCGWindowNumber as String] as? CGWindowID,
-              let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-              let ownerName = info[kCGWindowOwnerName as String] as? String,
-              let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
-              let boundsDict = info[kCGWindowBounds as String] as? [String: CGFloat],
-              let x = boundsDict["X"], let y = boundsDict["Y"],
-              let w = boundsDict["Width"], let h = boundsDict["Height"],
-              w > 0 && h > 0 else { return nil }
-
-        // kCGWindowName requires Screen Recording permission. Fall back to
-        // AXUIElement title which only needs Accessibility (already granted).
-        var title = info[kCGWindowName as String] as? String ?? ""
-        if title.isEmpty {
-            title = Self.axWindowTitle(for: windowID, pid: ownerPID)
-        }
-        let bounds = CGRect(x: x, y: y, width: w, height: h)
-
-        return WindowInfo(
-            windowID: windowID,
-            ownerPID: ownerPID,
-            ownerName: ownerName,
-            windowTitle: title,
-            bounds: bounds,
-            isMinimized: isMinimized,
-            thumbnail: nil
-        )
-    }
-
-    /// Reads the window title via AXUIElement, which only requires Accessibility permission.
-    private static func axWindowTitle(for targetID: CGWindowID, pid: pid_t) -> String {
-        let axApp = AXUIElementCreateApplication(pid)
-        var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let axWindows = windowsRef as? [AXUIElement] else { return "" }
-
-        for axWindow in axWindows {
-            var wid: CGWindowID = 0
-            _ = _AXUIElementGetWindow(axWindow, &wid)
-            if wid == targetID {
-                var titleRef: CFTypeRef?
-                if AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleRef) == .success,
-                   let title = titleRef as? String, !title.isEmpty {
-                    return title
-                }
-                break
-            }
-        }
-        return ""
     }
 }
 

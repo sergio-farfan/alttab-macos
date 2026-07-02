@@ -18,6 +18,8 @@
 		A10000090000000000000009 /* PreferencesMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000090000000000000009; };
 		A1000010000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000010000000000000000A; };
 		A100001100000000000000B0 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001300000000000000B0; };
+		A100001400000000000000C1 /* MRUOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001400000000000000C1; };
+		A100001500000000000000C2 /* SwitcherStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001500000000000000C2; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +36,8 @@
 		A2000011000000000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000012000000000000000C /* AltTab.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AltTab.entitlements; sourceTree = "<group>"; };
 		A200001300000000000000B0 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A200001400000000000000C1 /* MRUOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MRUOrder.swift; sourceTree = "<group>"; };
+		A200001500000000000000C2 /* SwitcherStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwitcherStateMachine.swift; sourceTree = "<group>"; };
 		A3000001000000000000000D /* AltTab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AltTab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -61,7 +65,9 @@
 			children = (
 				A20000010000000000000001 /* AppDelegate.swift */,
 				A20000020000000000000002 /* HotkeyManager.swift */,
+				A200001500000000000000C2 /* SwitcherStateMachine.swift */,
 				A20000030000000000000003 /* WindowModel.swift */,
+				A200001400000000000000C1 /* MRUOrder.swift */,
 				A20000040000000000000004 /* WindowCapture.swift */,
 				A20000050000000000000005 /* SwitcherPanel.swift */,
 				A20000060000000000000006 /* ThumbnailView.swift */,
@@ -155,7 +161,9 @@
 			files = (
 				A10000010000000000000001 /* AppDelegate.swift in Sources */,
 				A10000020000000000000002 /* HotkeyManager.swift in Sources */,
+				A100001500000000000000C2 /* SwitcherStateMachine.swift in Sources */,
 				A10000030000000000000003 /* WindowModel.swift in Sources */,
+				A100001400000000000000C1 /* MRUOrder.swift in Sources */,
 				A10000040000000000000004 /* WindowCapture.swift in Sources */,
 				A10000050000000000000005 /* SwitcherPanel.swift in Sources */,
 				A10000060000000000000006 /* ThumbnailView.swift in Sources */,
@@ -292,7 +300,7 @@
 				CODE_SIGN_ENTITLEMENTS = AltTab/AltTab.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AltTab/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -300,7 +308,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alttab.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -315,7 +323,7 @@
 				CODE_SIGN_ENTITLEMENTS = AltTab/AltTab.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AltTab/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -323,7 +331,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alttab.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

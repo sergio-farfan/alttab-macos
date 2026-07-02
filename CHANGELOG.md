@@ -5,6 +5,32 @@ All notable changes to AltTab will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-01
+
+### Added
+
+- Optional window previews via ScreenCaptureKit (macOS 14+): "Show Window Previews" toggle in the status menu, **off by default**. Unless enabled, no ScreenCaptureKit API is touched and no Screen Recording prompt can appear. When enabled, previews are captured concurrently at reduced resolution and patched into the panel cells as they arrive.
+- Windows of ⌘H-hidden apps and windows on other Spaces now appear in the switcher (standard windows only), discovered by the same Accessibility pass that finds minimized windows.
+- Multi-monitor support: the switcher appears on the screen containing the mouse pointer.
+- Unit tests for the extracted pure logic (`SwitcherStateMachine`, `MRUOrder`), runnable with `swift test`.
+
+### Fixed
+
+- Clicking a thumbnail now switches to that window. The click posted a notification nothing observed, and it desynced the panel's selection from the app's — releasing Option then activated the keyboard-selected window instead of the clicked one.
+- Potential crash on every app activation: the `kAXFocusedWindow` result was force-cast without a type check.
+- MRU race on confirm: the app-activation notification could read the target app's focused window before the asynchronous raise landed, demoting the just-selected window in MRU order. Explicit activations are now pinned for the next activation notification.
+- Running another app named "AltTab" (e.g. lwouis/alt-tab-macos) no longer hides its windows from the switcher — the self-filter now uses the PID, not the app name.
+- About dialog showed a hardcoded "Version 1.0"; it now reads the bundle version (single-sourced from `MARKETING_VERSION`).
+
+### Changed
+
+- Option-Tab opens from a cached window list instantly and reconciles against a fresh enumeration gathered off the main thread; the panel rebuilds only when the window set actually changed. Previously the panel was built twice per activation and enumeration ran synchronously on the main thread.
+- Window enumeration makes a single Accessibility pass per app instead of re-fetching each app's full window list once per window plus once per app for minimized windows (≈65 → ≈25 IPC round-trips for 5 apps × 4 windows), and every Accessibility call is bounded by a 0.25s messaging timeout — a wedged app can no longer stall the switcher for up to ~6s per call.
+- MRU sorting uses a rank dictionary with stable tiebreaking (O(n log n)) instead of `firstIndex(of:)` scans inside the comparator (O(n² log n)).
+- The Option-Tab state machine was extracted from the event-tap plumbing into `SwitcherStateMachine` (pure, unit-tested); MRU ordering into `MRUOrder`.
+- `NSRunningApplication.activate(options:)` deprecation gated: plain `activate()` on macOS 14+.
+- Watchdog and permission-poll timers set a 0.5s tolerance so the kernel can coalesce wakeups.
+
 ## [1.1.2] - 2026-07-01
 
 ### Added
@@ -58,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build/install script with `--system` flag for /Applications
 - Shift-Tab, Arrow keys, Escape, Enter, and mouse click navigation
 
+[1.2.0]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.2.0
 [1.1.2]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.1.2
 [1.1.1]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.1.1
 [1.1.0]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.1.0

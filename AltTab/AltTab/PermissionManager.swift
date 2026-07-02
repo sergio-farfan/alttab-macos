@@ -4,12 +4,13 @@
 //
 //  Manages macOS permission requirements. Checks and prompts for Accessibility
 //  access (required for CGEvent taps and AXUIElement window management) with
-//  a polling timer that posts a notification when granted. Detects Screen
-//  Recording permission by probing CGWindowListCopyWindowInfo for window names.
+//  a polling timer that posts a notification when granted. Screen Recording
+//  (needed only for the opt-in window previews) is checked silently via
+//  CGPreflightScreenCaptureAccess and requested via CGRequestScreenCaptureAccess.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.1.0
-//  Date:    2026-03-17
+//  Version: 1.2.0
+//  Date:    2026-07-01
 //  License: MIT
 //
 
@@ -44,28 +45,22 @@ final class PermissionManager {
                 NotificationCenter.default.post(name: .accessibilityGranted, object: nil)
             }
         }
+        pollTimer?.tolerance = 0.5 // let the kernel coalesce wakeups
     }
 
-    /// Cached result of the Screen Recording permission probe.
-    /// Checked once at first access to avoid re-triggering the macOS 15
-    /// "Screen & System Audio Recording" prompt on every Option+Tab.
-    private static var _screenRecordingCached: Bool?
+    // MARK: - Screen Recording (window previews only)
 
+    /// True when Screen Recording is already granted. Never prompts.
     static var hasScreenRecordingPermission: Bool {
-        if let cached = _screenRecordingCached { return cached }
-        let result = probeScreenRecordingPermission()
-        _screenRecordingCached = result
-        return result
+        CGPreflightScreenCaptureAccess()
     }
 
-    /// Probes Screen Recording permission by checking if CGWindowList returns window names.
-    /// This may trigger a one-time system prompt on macOS 15+.
-    private static func probeScreenRecordingPermission() -> Bool {
-        let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[CFString: Any]]
-        guard let list = windowList, let first = list.first else { return false }
-        return first[kCGWindowName] != nil
+    /// Prompts for Screen Recording access if not yet granted (macOS shows at
+    /// most one system prompt). Returns true when access is already granted.
+    @discardableResult
+    static func requestScreenRecordingPermission() -> Bool {
+        CGRequestScreenCaptureAccess()
     }
-
 }
 
 extension Notification.Name {

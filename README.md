@@ -45,7 +45,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 
 - **Tiny and auditable** — ~2,000 lines of pure Swift + AppKit, single purpose.
 - **Zero dependencies** — no packages, no frameworks bundled.
-- **No Screen Recording permission** — titles via the Accessibility API, app icons instead of live thumbnails (avoids the recurring macOS 15 recording prompt).
+- **No Screen Recording permission** — titles via the Accessibility API, app icons instead of live thumbnails (avoids the recurring macOS 15 recording prompt). Live window previews are available as a strictly opt-in toggle on macOS 14+.
 - **Windows-style Option-Tab** semantics with menu-bar-only footprint (no Dock icon).
 
 If you want extensive customization, use lwouis/alttab. If you want something small you can read end to end, use this.
@@ -58,7 +58,9 @@ If you want extensive customization, use lwouis/alttab. If you want something sm
 - **Instant response** — window-raise runs off the main thread and app icons are cached, so the switcher appears immediately
 - Window titles via Accessibility API — works for all apps without Screen Recording permission
 - App icon display with graceful fallback (no Screen Recording prompt on macOS 15+)
-- Includes minimized windows
+- Includes minimized windows, ⌘H-hidden apps, and windows on other Spaces
+- Optional live window previews (ScreenCaptureKit, macOS 14+, opt-in from the menu)
+- Multi-monitor aware — the switcher opens on the screen with the mouse pointer
 - MRU (most recently used) ordering with intra-app focus tracking
 - Menu bar utility — no Dock icon, no clutter
 - Launch at Login support (macOS 13+ SMAppService)
@@ -132,10 +134,11 @@ On first launch, AltTab will prompt for Accessibility access. Screen Recording i
 | Permission | Required | Why |
 |-----------|----------|-----|
 | **Accessibility** | Yes | CGEvent tap for global hotkey detection; AXUIElement for window titles, window management, focus tracking, and unminimize |
+| **Screen Recording** | No (opt-in) | Only for the optional "Show Window Previews" feature (macOS 14+, ScreenCaptureKit) |
 
 Grant in: **System Settings → Privacy & Security → Accessibility**
 
-> **Note:** Screen Recording permission is **not required**. Window titles are read via the Accessibility API, and app icons are used instead of live thumbnails. This avoids the repeated "Screen & System Audio Recording" prompt on macOS 15 (Sequoia).
+> **Note:** Screen Recording permission is **not required**. Window titles are read via the Accessibility API, and app icons are used instead of live thumbnails. This avoids the repeated "Screen & System Audio Recording" prompt on macOS 15 (Sequoia). Enabling **Show Window Previews** in the status menu is the only thing that requests Screen Recording; with the toggle off (the default) the API is never touched.
 
 ## Usage
 
@@ -160,16 +163,18 @@ The switcher UI is a **non-activating NSPanel** (`.nonactivatingPanel` style mas
 
 ```
 AltTab/AltTab/
-├── main.swift              # App entry point — wires NSApp delegate manually
-├── AppDelegate.swift       # Lifecycle, menu bar status item, orchestration
-├── HotkeyManager.swift     # CGEvent tap + idle/active state machine
-├── WindowModel.swift       # CGWindowList + AXUIElement enumeration, MRU tracking, app-icon cache
-├── WindowCapture.swift     # Icon provider (live capture disabled to avoid Screen Recording prompt)
-├── SwitcherPanel.swift     # NSPanel overlay with NSVisualEffectView backdrop
-├── ThumbnailView.swift     # Individual window cell (thumbnail + title + app name)
-├── WindowActivator.swift   # AXUIElement window raise / unminimize (off-main, bounded timeout)
-├── PermissionManager.swift # Accessibility & Screen Recording permission checks
-└── PreferencesMenu.swift   # Status bar menu (Launch at Login, Quit)
+├── main.swift                  # App entry point — wires NSApp delegate manually
+├── AppDelegate.swift           # Lifecycle, menu bar status item, orchestration, session epochs
+├── HotkeyManager.swift         # CGEvent tap plumbing; decodes events for the state machine
+├── SwitcherStateMachine.swift  # Pure Option-Tab session state machine (unit-tested)
+├── WindowModel.swift           # CGWindowList + single AX pass per app, cache + async refresh
+├── MRUOrder.swift              # Pure MRU ordering (unit-tested)
+├── WindowCapture.swift         # Opt-in ScreenCaptureKit window previews (macOS 14+)
+├── SwitcherPanel.swift         # NSPanel overlay with NSVisualEffectView backdrop
+├── ThumbnailView.swift         # Individual window cell (preview/icon + title + app name)
+├── WindowActivator.swift       # AXUIElement window raise / unminimize (off-main, bounded timeout)
+├── PermissionManager.swift     # Accessibility polling; Screen Recording preflight/request
+└── PreferencesMenu.swift       # Status bar menu (Launch at Login, Window Previews, Quit)
 ```
 
 ## Uninstall

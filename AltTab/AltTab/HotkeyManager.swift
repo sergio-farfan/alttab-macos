@@ -3,17 +3,17 @@
 //  AltTab — Windows-style Window Switcher for macOS
 //
 //  Global hotkey detection via a CGEvent tap installed at the session level.
-//  Implements a 3-state machine (idle → active → idle) that tracks Option
-//  key hold state and Tab/Arrow/Escape keypresses. The CGEvent callback is
-//  a C function pointer bridged to Swift via Unmanaged<HotkeyManager>.
-//  Only keyDown events are swallowed; flagsChanged is always passed through
-//  to avoid breaking system modifier state. Includes retry logic with
+//  Event decoding lives here; the Option-Tab session state lives in
+//  SwitcherStateMachine (pure and unit-tested). The CGEvent callback is a C
+//  function pointer bridged to Swift via Unmanaged<HotkeyManager>. Only
+//  keyDown events are swallowed; flagsChanged is always passed through to
+//  avoid breaking system modifier state. Includes retry logic with
 //  exponential backoff for event tap creation, handling the case where the
 //  Accessibility subsystem isn't ready at login time.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.1.0
-//  Date:    2026-03-17
+//  Version: 1.2.0
+//  Date:    2026-07-01
 //  License: MIT
 //
 
@@ -36,12 +36,7 @@ final class HotkeyManager {
 
     weak var delegate: HotkeyDelegate?
 
-    private enum State {
-        case idle
-        case active
-    }
-
-    private var state: State = .idle
+    private var stateMachine = SwitcherStateMachine()
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var reEnableTimer: Timer?
@@ -94,6 +89,14 @@ final class HotkeyManager {
         }
     }
 
+    /// Ends the current switcher session without dispatching an action — used
+    /// when the app confirmed a selection through another path (thumbnail click)
+    /// or found nothing to show. Main thread only, the same thread the tap
+    /// callbacks run on.
+    func cancelSession() {
+        stateMachine.cancelSession()
+    }
+
     // MARK: - Event Tap
 
     @discardableResult
@@ -143,14 +146,10 @@ final class HotkeyManager {
                 NSLog("AltTab: Event tap was disabled by system, re-enabling.")
                 CGEvent.tapEnable(tap: tap, enable: true)
                 // If we were active, we missed the Option release — force cancel
-                if self.state == .active {
-                    self.state = .idle
-                    DispatchQueue.main.async { [weak self] in
-                        self?.delegate?.hotkeyDidCancel()
-                    }
-                }
+                self.dispatch(self.stateMachine.handleTapDisabled())
             }
         }
+        reEnableTimer?.tolerance = 0.5 // let the kernel coalesce watchdog wakeups
     }
 
     // MARK: - Event Handling
@@ -161,113 +160,44 @@ final class HotkeyManager {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            if state == .active {
-                state = .idle
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.hotkeyDidCancel()
-                }
-            }
+            dispatch(stateMachine.handleTapDisabled())
             return Unmanaged.passUnretained(event)
         }
 
         switch type {
         case .flagsChanged:
-            return handleFlagsChanged(event)
+            // NEVER swallow flagsChanged — always pass through
+            dispatch(stateMachine.handleFlagsChanged(optionDown: event.flags.contains(.maskAlternate)))
+            return Unmanaged.passUnretained(event)
+
         case .keyDown:
-            return handleKeyDown(event)
+            let (action, swallow) = stateMachine.handleKeyDown(
+                keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
+                optionDown: event.flags.contains(.maskAlternate),
+                shiftDown: event.flags.contains(.maskShift)
+            )
+            dispatch(action)
+            return swallow ? nil : Unmanaged.passUnretained(event)
+
         default:
             return Unmanaged.passUnretained(event)
         }
     }
 
-    private func handleFlagsChanged(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        let flags = event.flags
-        let optionDown = flags.contains(.maskAlternate)
-
-        switch state {
-        case .idle:
-            if optionDown {
-                // Don't activate yet — wait for Tab keyDown
-            }
-        case .active:
-            if !optionDown {
-                // Option released → confirm selection
-                state = .idle
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.hotkeyDidConfirm()
-                }
+    /// Dispatches a state-machine action to the delegate on the main queue.
+    private func dispatch(_ action: SwitcherAction) {
+        guard action != .none else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let delegate = self?.delegate else { return }
+            switch action {
+            case .activate: delegate.hotkeyDidActivate()
+            case .cycleNext: delegate.hotkeyDidCycleNext()
+            case .cyclePrevious: delegate.hotkeyDidCyclePrevious()
+            case .confirm: delegate.hotkeyDidConfirm()
+            case .cancel: delegate.hotkeyDidCancel()
+            case .none: break
             }
         }
-
-        // NEVER swallow flagsChanged — always pass through
-        return Unmanaged.passUnretained(event)
-    }
-
-    private func handleKeyDown(_ event: CGEvent) -> Unmanaged<CGEvent>? {
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let flags = event.flags
-
-        let optionDown = flags.contains(.maskAlternate)
-        let shiftDown = flags.contains(.maskShift)
-
-        switch state {
-        case .idle:
-            // Option + Tab → activate switcher
-            if optionDown && keyCode == kVK_Tab {
-                state = .active
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.hotkeyDidActivate()
-                }
-                return nil // swallow the Tab
-            }
-
-        case .active:
-            switch Int(keyCode) {
-            case kVK_Tab:
-                if shiftDown {
-                    DispatchQueue.main.async { [weak self] in
-                        self?.delegate?.hotkeyDidCyclePrevious()
-                    }
-                } else {
-                    DispatchQueue.main.async { [weak self] in
-                        self?.delegate?.hotkeyDidCycleNext()
-                    }
-                }
-                return nil // swallow
-
-            case kVK_LeftArrow:
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.hotkeyDidCyclePrevious()
-                }
-                return nil
-
-            case kVK_RightArrow:
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.hotkeyDidCycleNext()
-                }
-                return nil
-
-            case kVK_Escape:
-                state = .idle
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.hotkeyDidCancel()
-                }
-                return nil
-
-            case kVK_Return:
-                state = .idle
-                DispatchQueue.main.async { [weak self] in
-                    self?.delegate?.hotkeyDidConfirm()
-                }
-                return nil
-
-            default:
-                break
-            }
-        }
-
-        // Pass through all other keys
-        return Unmanaged.passUnretained(event)
     }
 }
 

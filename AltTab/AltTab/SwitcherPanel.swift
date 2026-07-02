@@ -7,17 +7,23 @@
 //  above all windows without stealing focus — critical for the Option-release
 //  activation flow. Uses NSVisualEffectView with .hudWindow material for
 //  the semi-transparent backdrop, and an NSScrollView wrapping a horizontal
-//  NSStackView of ThumbnailView cells.
+//  NSStackView of ThumbnailView cells. Appears centered on the screen that
+//  contains the mouse pointer. Thumbnail clicks are reported through the
+//  onWindowClicked callback; previews arriving later are patched into cells
+//  in place via updateThumbnail(windowID:image:).
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.1.0
-//  Date:    2026-03-17
+//  Version: 1.2.0
+//  Date:    2026-07-01
 //  License: MIT
 //
 
 import Cocoa
 
 final class SwitcherPanel: NSPanel {
+
+    /// Called with the cell index when the user clicks a thumbnail.
+    var onWindowClicked: ((Int) -> Void)?
 
     private let itemWidth: CGFloat = 180
     private let itemHeight: CGFloat = 160
@@ -27,6 +33,7 @@ final class SwitcherPanel: NSPanel {
     private var scrollView: NSScrollView!
     private var stackView: NSStackView!
     private var thumbnailViews: [ThumbnailView] = []
+    private var windowIDs: [CGWindowID] = []
     private var selectedIndex: Int = 0
 
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
@@ -101,6 +108,7 @@ final class SwitcherPanel: NSPanel {
         // Clear old
         thumbnailViews.forEach { $0.removeFromSuperview() }
         thumbnailViews.removeAll()
+        windowIDs = windows.map { $0.windowID }
 
         // Build new
         for (index, windowInfo) in windows.enumerated() {
@@ -113,8 +121,10 @@ final class SwitcherPanel: NSPanel {
             thumbnailViews.append(view)
         }
 
-        // Size and position the panel
-        let screen = NSScreen.main ?? NSScreen.screens.first!
+        // Size and position the panel on the screen containing the mouse.
+        let mouseLocation = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) })
+                ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let maxPanelWidth = screen.frame.width * 0.85
         let contentWidth = CGFloat(windows.count) * itemWidth + CGFloat(max(0, windows.count - 1)) * itemSpacing
         let panelWidth = min(maxPanelWidth, contentWidth + panelPadding * 2)
@@ -131,16 +141,26 @@ final class SwitcherPanel: NSPanel {
 
     func updateSelection(index: Int) {
         guard index >= 0, index < thumbnailViews.count else { return }
-        thumbnailViews[selectedIndex].isSelected = false
+        if selectedIndex < thumbnailViews.count {
+            thumbnailViews[selectedIndex].isSelected = false
+        }
         selectedIndex = index
         thumbnailViews[selectedIndex].isSelected = true
         scrollToSelected()
+    }
+
+    /// Patches a captured preview into its cell without rebuilding the panel.
+    func updateThumbnail(windowID: CGWindowID, image: NSImage) {
+        guard let index = windowIDs.firstIndex(of: windowID),
+              index < thumbnailViews.count else { return }
+        thumbnailViews[index].setThumbnail(image)
     }
 
     func dismiss() {
         orderOut(nil)
         thumbnailViews.forEach { $0.removeFromSuperview() }
         thumbnailViews.removeAll()
+        windowIDs.removeAll()
     }
 
     // MARK: - Private
@@ -153,16 +173,10 @@ final class SwitcherPanel: NSPanel {
 
     private func handleClick(index: Int) {
         updateSelection(index: index)
-        // Notify delegate through responder chain — AppDelegate handles it
-        NotificationCenter.default.post(name: .switcherClickedWindow, object: nil,
-                                        userInfo: ["index": index])
+        onWindowClicked?(index)
     }
 
     // Allow mouse interaction even though we're non-activating
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
-}
-
-extension Notification.Name {
-    static let switcherClickedWindow = Notification.Name("com.alttab.switcherClickedWindow")
 }

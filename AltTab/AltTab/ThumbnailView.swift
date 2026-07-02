@@ -133,6 +133,12 @@ final class ThumbnailView: NSView {
         }
     }
 
+    /// Replaces the app-icon placeholder with a captured window preview.
+    func setThumbnail(_ image: NSImage) {
+        imageView.image = image
+        imageView.alphaValue = 1.0
+    }
+
     private func updateAppearance() {
         if isSelected {
             selectionBorder.layer?.borderColor = NSColor.controlAccentColor.cgColor
