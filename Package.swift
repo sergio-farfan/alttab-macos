@@ -28,7 +28,7 @@ let package = Package(
                 "Info.plist",
                 "AltTab.entitlements",
             ],
-            sources: ["MRUOrder.swift", "SwitcherStateMachine.swift"]
+            sources: ["MRUOrder.swift", "SwitcherStateMachine.swift", "WCAGContrast.swift"]
         ),
         .testTarget(
             name: "AltTabCoreTests",

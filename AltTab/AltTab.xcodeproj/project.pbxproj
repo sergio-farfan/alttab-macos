@@ -20,6 +20,7 @@
 		A100001100000000000000B0 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001300000000000000B0; };
 		A100001400000000000000C1 /* MRUOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001400000000000000C1; };
 		A100001500000000000000C2 /* SwitcherStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001500000000000000C2; };
+		A100001600000000000000C3 /* WCAGContrast.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200001600000000000000C3; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 		A200001300000000000000B0 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A200001400000000000000C1 /* MRUOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MRUOrder.swift; sourceTree = "<group>"; };
 		A200001500000000000000C2 /* SwitcherStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwitcherStateMachine.swift; sourceTree = "<group>"; };
+		A200001600000000000000C3 /* WCAGContrast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WCAGContrast.swift; sourceTree = "<group>"; };
 		A3000001000000000000000D /* AltTab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AltTab.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -68,6 +70,7 @@
 				A200001500000000000000C2 /* SwitcherStateMachine.swift */,
 				A20000030000000000000003 /* WindowModel.swift */,
 				A200001400000000000000C1 /* MRUOrder.swift */,
+				A200001600000000000000C3 /* WCAGContrast.swift */,
 				A20000040000000000000004 /* WindowCapture.swift */,
 				A20000050000000000000005 /* SwitcherPanel.swift */,
 				A20000060000000000000006 /* ThumbnailView.swift */,
@@ -164,6 +167,7 @@
 				A100001500000000000000C2 /* SwitcherStateMachine.swift in Sources */,
 				A10000030000000000000003 /* WindowModel.swift in Sources */,
 				A100001400000000000000C1 /* MRUOrder.swift in Sources */,
+				A100001600000000000000C3 /* WCAGContrast.swift in Sources */,
 				A10000040000000000000004 /* WindowCapture.swift in Sources */,
 				A10000050000000000000005 /* SwitcherPanel.swift in Sources */,
 				A10000060000000000000006 /* ThumbnailView.swift in Sources */,
