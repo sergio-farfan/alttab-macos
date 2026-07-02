@@ -3,13 +3,14 @@
 //  AltTab — Windows-style Window Switcher for macOS
 //
 //  Status bar dropdown menu with "Launch at Login" toggle (via SMAppService
-//  on macOS 13+), "Show Window Previews" toggle (ScreenCaptureKit previews,
-//  macOS 14+, requires Screen Recording), About dialog, and Quit. Attached
-//  to the NSStatusItem created by AppDelegate.
+//  on macOS 13+), "Appearance" submenu (System / Light / Dark switcher
+//  theme override), "Show Window Previews" toggle (ScreenCaptureKit
+//  previews, macOS 14+, requires Screen Recording), About dialog, and Quit.
+//  Attached to the NSStatusItem created by AppDelegate.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.2.0
-//  Date:    2026-07-01
+//  Version: 1.3.0
+//  Date:    2026-07-02
 //  License: MIT
 //
 

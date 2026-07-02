@@ -8,8 +8,8 @@
 //  Supports mouse hover and click interaction for direct window selection.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.1.0
-//  Date:    2026-03-17
+//  Version: 1.3.0
+//  Date:    2026-07-02
 //  License: MIT
 //
 
@@ -76,8 +76,10 @@ final class ThumbnailView: NSView {
 
         // Solid theme-paired backing so label contrast never depends on the
         // wallpaper showing through the translucent panel (WCAG AA, spec
-        // 2026-07-02). NSBox is layer-backed, which also opts the labels out
-        // of NSVisualEffectView vibrancy so they render solid.
+        // 2026-07-02). The opaque windowBackgroundColor box is painted
+        // directly behind the sibling labels, so any residual vibrant
+        // blending composites against exactly the background the unit tests
+        // assert against.
         labelBackdrop.boxType = .custom
         labelBackdrop.titlePosition = .noTitle
         labelBackdrop.fillColor = .windowBackgroundColor
