@@ -30,6 +30,20 @@ final class PreferencesMenu {
         launchItem.state = Self.isLaunchAtLoginEnabled ? .on : .off
         menu.addItem(launchItem)
 
+        let appearanceItem = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
+        let appearanceMenu = NSMenu()
+        for (title, value) in [("System", "system"), ("Light", "light"), ("Dark", "dark")] {
+            let item = NSMenuItem(title: title,
+                                  action: #selector(selectAppearance(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            appearanceMenu.addItem(item)
+        }
+        appearanceItem.submenu = appearanceMenu
+        menu.addItem(appearanceItem)
+        refreshAppearanceChecks(in: appearanceMenu)
+
         if #available(macOS 14.0, *) {
             let previewsItem = NSMenuItem(title: "Show Window Previews",
                                           action: #selector(toggleWindowPreviews(_:)),
@@ -81,6 +95,27 @@ final class PreferencesMenu {
                 alert.informativeText = error.localizedDescription
                 alert.runModal()
             }
+        }
+    }
+
+    // MARK: - Appearance
+
+    @objc private func selectAppearance(_ sender: NSMenuItem) {
+        let value = sender.representedObject as? String ?? "system"
+        if value == "system" {
+            UserDefaults.standard.removeObject(forKey: SwitcherPanel.appearanceDefaultsKey)
+        } else {
+            UserDefaults.standard.set(value, forKey: SwitcherPanel.appearanceDefaultsKey)
+        }
+        if let menu = sender.menu {
+            refreshAppearanceChecks(in: menu)
+        }
+    }
+
+    private func refreshAppearanceChecks(in menu: NSMenu) {
+        let current = UserDefaults.standard.string(forKey: SwitcherPanel.appearanceDefaultsKey) ?? "system"
+        for item in menu.items {
+            item.state = ((item.representedObject as? String) == current) ? .on : .off
         }
     }
 
