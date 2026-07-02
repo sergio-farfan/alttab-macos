@@ -4,7 +4,8 @@
 //
 //  Status bar dropdown menu with "Launch at Login" toggle (via SMAppService
 //  on macOS 13+), "Appearance" submenu (System / Light / Dark switcher
-//  theme override), "Show Window Previews" toggle (ScreenCaptureKit
+//  theme override), "Background" submenu (Solid / Transparent / Liquid
+//  Glass on macOS 26+), "Show Window Previews" toggle (ScreenCaptureKit
 //  previews, macOS 14+, requires Screen Recording), About dialog, and Quit.
 //  Attached to the NSStatusItem created by AppDelegate.
 //
@@ -44,6 +45,24 @@ final class PreferencesMenu {
         appearanceItem.submenu = appearanceMenu
         menu.addItem(appearanceItem)
         refreshAppearanceChecks(in: appearanceMenu)
+
+        let backgroundItem = NSMenuItem(title: "Background", action: nil, keyEquivalent: "")
+        let backgroundMenu = NSMenu()
+        var backgroundChoices = [("Solid", "solid"), ("Transparent", "transparent")]
+        if #available(macOS 26.0, *) {
+            backgroundChoices.append(("Liquid Glass", "glass"))
+        }
+        for (title, value) in backgroundChoices {
+            let item = NSMenuItem(title: title,
+                                  action: #selector(selectBackground(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            backgroundMenu.addItem(item)
+        }
+        backgroundItem.submenu = backgroundMenu
+        menu.addItem(backgroundItem)
+        refreshBackgroundChecks(in: backgroundMenu)
 
         if #available(macOS 14.0, *) {
             let previewsItem = NSMenuItem(title: "Show Window Previews",
@@ -115,6 +134,27 @@ final class PreferencesMenu {
 
     private func refreshAppearanceChecks(in menu: NSMenu) {
         let current = UserDefaults.standard.string(forKey: SwitcherPanel.appearanceDefaultsKey) ?? "system"
+        for item in menu.items {
+            item.state = ((item.representedObject as? String) == current) ? .on : .off
+        }
+    }
+
+    // MARK: - Background
+
+    @objc private func selectBackground(_ sender: NSMenuItem) {
+        let value = sender.representedObject as? String ?? "solid"
+        if value == "solid" {
+            UserDefaults.standard.removeObject(forKey: SwitcherPanel.backgroundDefaultsKey)
+        } else {
+            UserDefaults.standard.set(value, forKey: SwitcherPanel.backgroundDefaultsKey)
+        }
+        if let menu = sender.menu {
+            refreshBackgroundChecks(in: menu)
+        }
+    }
+
+    private func refreshBackgroundChecks(in menu: NSMenu) {
+        let current = UserDefaults.standard.string(forKey: SwitcherPanel.backgroundDefaultsKey) ?? "solid"
         for item in menu.items {
             item.state = ((item.representedObject as? String) == current) ? .on : .off
         }
