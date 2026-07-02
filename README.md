@@ -60,6 +60,7 @@ If you want extensive customization, use lwouis/alttab. If you want something sm
 - App icon display with graceful fallback (no Screen Recording prompt on macOS 15+)
 - Includes minimized windows, ⌘H-hidden apps, and windows on other Spaces
 - Optional live window previews (ScreenCaptureKit, macOS 14+, opt-in from the menu)
+- Appearance override (System / Light / Dark) and background styles: Solid (default), Transparent, or native Liquid Glass (macOS 26+)
 - Multi-monitor aware — the switcher opens on the screen with the mouse pointer
 - MRU (most recently used) ordering with intra-app focus tracking
 - Menu bar utility — no Dock icon, no clutter
@@ -185,7 +186,7 @@ AltTab/AltTab/
 ├── ThumbnailView.swift         # Individual window cell (preview/icon + title + app name)
 ├── WindowActivator.swift       # AXUIElement window raise / unminimize (off-main, bounded timeout)
 ├── PermissionManager.swift     # Accessibility polling; Screen Recording preflight/request
-└── PreferencesMenu.swift       # Status bar menu (Launch at Login, Window Previews, Quit)
+└── PreferencesMenu.swift       # Status bar menu (Launch at Login, Appearance, Background, Window Previews, Quit)
 ```
 
 ## Uninstall

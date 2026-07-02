@@ -10,11 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Appearance setting (status menu): System / Light / Dark. Default follows the OS theme, including scheduled Auto switching.
+- Background setting (status menu): **Solid** (default), **Transparent** (the classic translucent HUD), and **Liquid Glass** (native `NSGlassEffectView`, macOS 26+).
 
 ### Changed
 
-- Switcher readability now meets WCAG 2.x AA (contrast >= 4.5:1) regardless of wallpaper or time of day: the panel uses an appearance-adaptive material, labels use semantic system colors, and each cell's text sits on a solid theme-paired backing strip. Verified by unit tests (`WCAGContrastTests`) that resolve the live system colors in both appearances.
-- The panel automatically renders opaque when macOS "Reduce transparency" (Accessibility) is enabled.
+- Switcher labels use semantic system colors that adapt to light/dark. On the default Solid background the label/background pair meets WCAG 2.x AA (contrast >= 4.5:1), verified by unit tests (`WCAGContrastTests`) that resolve the live system colors in both appearances. Transparent and Liquid Glass are aesthetic opt-ins where contrast depends on the wallpaper; labels there render with the system's vibrancy / glass legibility treatments.
+- The Solid background is always opaque; the Transparent material auto-opaques when macOS "Reduce transparency" (Accessibility) is enabled.
 
 ## [1.2.1] - 2026-07-01
 
