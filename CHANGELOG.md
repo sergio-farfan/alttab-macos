@@ -5,6 +5,17 @@ All notable changes to AltTab will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Appearance setting (status menu): System / Light / Dark. Default follows the OS theme, including scheduled Auto switching.
+
+### Changed
+
+- Switcher readability now meets WCAG 2.x AA (contrast >= 4.5:1) regardless of wallpaper or time of day: the panel uses an appearance-adaptive material, labels use semantic system colors, and each cell's text sits on a solid theme-paired backing strip. Verified by unit tests (`WCAGContrastTests`) that resolve the live system colors in both appearances.
+- The panel automatically renders opaque when macOS "Reduce transparency" (Accessibility) is enabled.
+
 ## [1.2.1] - 2026-07-01
 
 ### Fixed
