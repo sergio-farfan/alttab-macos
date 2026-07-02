@@ -64,7 +64,8 @@ final class WCAGContrastTests: XCTestCase {
                        expected, accuracy: 0.0001)
     }
 
-    // MARK: - Semantic pairs used by ThumbnailView (spec: WCAG AA >= 4.5:1)
+    // MARK: - Semantic pairs used by ThumbnailView on the solid default
+    // background (spec: WCAG AA >= 4.5:1)
 
     private func resolved(_ color: NSColor, under appearanceName: NSAppearance.Name) -> SRGB {
         var result = SRGB(r: 0, g: 0, b: 0)

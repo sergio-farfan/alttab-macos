@@ -39,7 +39,6 @@ final class ThumbnailView: NSView {
     private let titleLabel: NSTextField
     private let appLabel: NSTextField
     private let selectionBorder: NSView
-    private let labelBackdrop: NSBox
     private let thumbnailHeight: CGFloat
 
     init(windowInfo: WindowInfo, width: CGFloat, height: CGFloat) {
@@ -49,7 +48,6 @@ final class ThumbnailView: NSView {
         titleLabel = NSTextField(labelWithString: "")
         appLabel = NSTextField(labelWithString: "")
         selectionBorder = NSView()
-        labelBackdrop = NSBox()
 
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
@@ -73,20 +71,6 @@ final class ThumbnailView: NSView {
         selectionBorder.layer?.borderColor = NSColor.clear.cgColor
         selectionBorder.translatesAutoresizingMaskIntoConstraints = false
         addSubview(selectionBorder)
-
-        // Solid theme-paired backing so label contrast never depends on the
-        // wallpaper showing through the translucent panel (WCAG AA, spec
-        // 2026-07-02). The opaque windowBackgroundColor box is painted
-        // directly behind the sibling labels, so any residual vibrant
-        // blending composites against exactly the background the unit tests
-        // assert against.
-        labelBackdrop.boxType = .custom
-        labelBackdrop.titlePosition = .noTitle
-        labelBackdrop.fillColor = .windowBackgroundColor
-        labelBackdrop.borderWidth = 0
-        labelBackdrop.cornerRadius = 6
-        labelBackdrop.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(labelBackdrop)
 
         // Thumbnail image
         imageView.imageScaling = .scaleProportionallyUpOrDown
@@ -142,12 +126,6 @@ final class ThumbnailView: NSView {
             // Fixed size
             widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: height),
-
-            // Label backing strip wraps both labels with small padding
-            labelBackdrop.topAnchor.constraint(equalTo: titleLabel.topAnchor, constant: -3),
-            labelBackdrop.bottomAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 3),
-            labelBackdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            labelBackdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
         ])
     }
 
@@ -167,7 +145,8 @@ final class ThumbnailView: NSView {
         }
 
         #if DEBUG
-        // Regression tripwire for the WCAG AA guarantee (spec 2026-07-02).
+        // Regression tripwire for the WCAG AA guarantee on the solid default
+        // background (spec 2026-07-02-switcher-background-styles).
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if let bg = NSColor.windowBackgroundColor.usingColorSpace(.sRGB),
                let fg = NSColor.labelColor.usingColorSpace(.sRGB) {
