@@ -10,6 +10,7 @@
 //
 
 import XCTest
+import AppKit
 @testable import AltTabCore
 
 final class WCAGContrastTests: XCTestCase {
@@ -61,5 +62,47 @@ final class WCAGContrastTests: XCTestCase {
         let expected = WCAGContrast.contrastRatio(SRGB(r: 0.5, g: 0.5, b: 0.5), bg)
         XCTAssertEqual(WCAGContrast.contrastRatio(text: text, background: bg),
                        expected, accuracy: 0.0001)
+    }
+
+    // MARK: - Semantic pairs used by ThumbnailView (spec: WCAG AA >= 4.5:1)
+
+    private func resolved(_ color: NSColor, under appearanceName: NSAppearance.Name) -> SRGB {
+        var result = SRGB(r: 0, g: 0, b: 0)
+        NSAppearance(named: appearanceName)!.performAsCurrentDrawingAppearance {
+            let c = color.usingColorSpace(.sRGB)!
+            result = SRGB(r: Double(c.redComponent),
+                          g: Double(c.greenComponent),
+                          b: Double(c.blueComponent),
+                          a: Double(c.alphaComponent))
+        }
+        return result
+    }
+
+    func testTitleLabelMeetsAAOnBackingInBothAppearances() {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let bg = resolved(.windowBackgroundColor, under: name)
+            let text = resolved(.labelColor, under: name)
+            let ratio = WCAGContrast.contrastRatio(text: text, background: bg)
+            XCTAssertGreaterThanOrEqual(ratio, 4.5,
+                "labelColor on windowBackgroundColor is \(ratio) in \(name.rawValue)")
+        }
+    }
+
+    func testAppNameLabelMeetsAAOnBackingInBothAppearances() {
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let bg = resolved(.windowBackgroundColor, under: name)
+            // Derive INSIDE the appearance context: withAlphaComponent() on a
+            // dynamic catalog color resolves and freezes it at call time, so
+            // deriving outside would test the wrong appearance's color.
+            var text = SRGB(r: 0, g: 0, b: 0)
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                let c = NSColor.labelColor.withAlphaComponent(0.78).usingColorSpace(.sRGB)!
+                text = SRGB(r: c.redComponent, g: c.greenComponent,
+                            b: c.blueComponent, a: c.alphaComponent)
+            }
+            let ratio = WCAGContrast.contrastRatio(text: text, background: bg)
+            XCTAssertGreaterThanOrEqual(ratio, 4.5,
+                "labelColor@0.78 on windowBackgroundColor is \(ratio) in \(name.rawValue)")
+        }
     }
 }
