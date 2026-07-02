@@ -17,7 +17,7 @@
     <img src="Screenshots/demo.gif" alt="AltTab in action" width="640">
 -->
 <p align="center">
-  <img src="Screenshots/AltTab1.jpg" alt="AltTab menu bar menu" width="320">
+  <img src="Screenshots/menu.png" alt="AltTab menu bar menu" width="320">
 </p>
 
 macOS Cmd-Tab switches between *applications*. AltTab switches between *windows* — just like Alt-Tab on Windows. Hold Option, tap Tab to see every open window as a thumbnail, cycle through them, and release to switch.
