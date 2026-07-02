@@ -5,16 +5,18 @@
 //  The overlay UI that displays window thumbnails in a horizontal strip.
 //  Built as an NSPanel with .nonactivatingPanel style mask so it floats
 //  above all windows without stealing focus — critical for the Option-release
-//  activation flow. Uses NSVisualEffectView with .popover material (adapts to the OS light/dark appearance) for
-//  the semi-transparent backdrop, and an NSScrollView wrapping a horizontal
+//  activation flow. The background is user-selectable (status menu →
+//  Background): an opaque solid plate (default, WCAG AA-tested label
+//  contrast), the classic translucent HUD material, or native Liquid Glass
+//  on macOS 26+. Content lives in an NSScrollView wrapping a horizontal
 //  NSStackView of ThumbnailView cells. Appears centered on the screen that
 //  contains the mouse pointer. Thumbnail clicks are reported through the
 //  onWindowClicked callback; previews arriving later are patched into cells
 //  in place via updateThumbnail(windowID:image:).
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
-//  Version: 1.2.0
-//  Date:    2026-07-01
+//  Version: 1.3.0
+//  Date:    2026-07-02
 //  License: MIT
 //
 
@@ -27,6 +29,28 @@ final class SwitcherPanel: NSPanel {
 
     /// UserDefaults key for the appearance override: absent/"system", "light", or "dark".
     static let appearanceDefaultsKey = "AppearanceOverride"
+
+    /// UserDefaults key for the panel background style: absent/"solid",
+    /// "transparent", or "glass".
+    static let backgroundDefaultsKey = "BackgroundStyle"
+
+    private enum BackgroundStyle: String {
+        case solid, transparent, glass
+
+        /// Resolves the stored preference: unknown values map to solid, and
+        /// "glass" falls back to solid on macOS < 26 where NSGlassEffectView
+        /// does not exist.
+        static func current() -> BackgroundStyle {
+            let raw = UserDefaults.standard.string(forKey: SwitcherPanel.backgroundDefaultsKey) ?? "solid"
+            let style = BackgroundStyle(rawValue: raw) ?? .solid
+            if style == .glass {
+                guard #available(macOS 26.0, *) else { return .solid }
+            }
+            return style
+        }
+    }
+
+    private var installedStyle: BackgroundStyle?
 
     private let itemWidth: CGFloat = 180
     private let itemHeight: CGFloat = 160
@@ -64,32 +88,12 @@ final class SwitcherPanel: NSPanel {
     // MARK: - UI Setup
 
     private func setupUI() {
-        let backdrop = NSVisualEffectView()
-        // .popover adapts to light/dark and automatically goes opaque when
-        // the user enables "Reduce transparency" (Accessibility).
-        backdrop.material = .popover
-        backdrop.blendingMode = .behindWindow
-        backdrop.state = .active
-        backdrop.wantsLayer = true
-        backdrop.layer?.cornerRadius = 16
-        backdrop.layer?.masksToBounds = true
-
-        contentView = backdrop
-
         scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.hasHorizontalScroller = false
         scrollView.hasVerticalScroller = false
         scrollView.horizontalScrollElasticity = .none
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        backdrop.addSubview(scrollView)
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: backdrop.topAnchor, constant: panelPadding),
-            scrollView.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -panelPadding),
-            scrollView.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: panelPadding),
-            scrollView.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -panelPadding),
-        ])
 
         stackView = NSStackView()
         stackView.orientation = .horizontal
@@ -103,12 +107,105 @@ final class SwitcherPanel: NSPanel {
             stackView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             stackView.heightAnchor.constraint(equalToConstant: itemHeight),
         ])
+
+        installBackground(BackgroundStyle.current())
+    }
+
+    /// The opaque, appearance-adaptive plate whose label contrast the
+    /// WCAGContrastTests guarantee (>= 4.5:1, WCAG AA). Also the fallback
+    /// for unavailable styles.
+    private static func makeSolidBackground() -> NSBox {
+        let box = NSBox()
+        box.boxType = .custom
+        box.titlePosition = .noTitle
+        box.fillColor = .windowBackgroundColor
+        box.borderWidth = 0
+        box.cornerRadius = 16
+        box.contentViewMargins = .zero
+        return box
+    }
+
+    /// Re-installs the background root only when the preference changed.
+    private func installBackgroundIfNeeded() {
+        let style = BackgroundStyle.current()
+        if style != installedStyle {
+            installBackground(style)
+        }
+    }
+
+    /// Builds the root view for the style and re-parents the persistent
+    /// scroll view into it with the standard panel padding.
+    private func installBackground(_ style: BackgroundStyle) {
+        scrollView.removeFromSuperview()
+
+        let root: NSView
+        let scrollHost: NSView
+
+        switch style {
+        case .solid:
+            let box = Self.makeSolidBackground()
+            root = box
+            scrollHost = box
+
+        case .transparent:
+            // The classic translucent HUD (pre-1.2 look). Labels are
+            // effect-view descendants, so they render with vibrancy; the
+            // material is appearance-adaptive and auto-opaques when
+            // "Reduce transparency" (Accessibility) is enabled.
+            let effect = NSVisualEffectView()
+            effect.material = .hudWindow
+            effect.blendingMode = .behindWindow
+            effect.state = .active
+            effect.wantsLayer = true
+            effect.layer?.cornerRadius = 16
+            effect.layer?.masksToBounds = true
+            root = effect
+            scrollHost = effect
+
+        case .glass:
+            if #available(macOS 26.0, *) {
+                // NSGlassEffectView only guarantees placement of content
+                // assigned to contentView (SDK header contract), so the
+                // scroll view lives in an embedded host view.
+                let glass = NSGlassEffectView()
+                glass.cornerRadius = 16
+                glass.style = .regular
+                let host = NSView()
+                host.translatesAutoresizingMaskIntoConstraints = false
+                glass.contentView = host
+                NSLayoutConstraint.activate([
+                    host.topAnchor.constraint(equalTo: glass.topAnchor),
+                    host.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
+                    host.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+                    host.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+                ])
+                root = glass
+                scrollHost = host
+            } else {
+                // Unreachable: BackgroundStyle.current() never yields .glass
+                // below macOS 26. Kept for exhaustiveness.
+                let box = Self.makeSolidBackground()
+                root = box
+                scrollHost = box
+            }
+        }
+
+        contentView = root
+        scrollHost.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: scrollHost.topAnchor, constant: panelPadding),
+            scrollView.bottomAnchor.constraint(equalTo: scrollHost.bottomAnchor, constant: -panelPadding),
+            scrollView.leadingAnchor.constraint(equalTo: scrollHost.leadingAnchor, constant: panelPadding),
+            scrollView.trailingAnchor.constraint(equalTo: scrollHost.trailingAnchor, constant: -panelPadding),
+        ])
+        installedStyle = style
     }
 
     // MARK: - Public API
 
     func show(windows: [WindowInfo], selectedIndex: Int) {
         applyAppearancePreference()
+        installBackgroundIfNeeded()
         self.selectedIndex = selectedIndex
 
         // Clear old
