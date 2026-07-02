@@ -166,7 +166,11 @@ final class SwitcherPanel: NSPanel {
             if #available(macOS 26.0, *) {
                 // NSGlassEffectView only guarantees placement of content
                 // assigned to contentView (SDK header contract), so the
-                // scroll view lives in an embedded host view.
+                // scroll view lives in an embedded host view. As of
+                // macOS 26.5, assigning contentView also auto-pins it
+                // edge-to-edge internally; the explicit constraints below are
+                // deliberate agreeing duplicates of that undocumented
+                // behavior — re-examine on major OS updates.
                 let glass = NSGlassEffectView()
                 glass.cornerRadius = 16
                 glass.style = .regular

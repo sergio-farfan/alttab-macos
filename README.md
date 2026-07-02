@@ -182,7 +182,7 @@ AltTab/AltTab/
 ├── WindowModel.swift           # CGWindowList + single AX pass per app, cache + async refresh
 ├── MRUOrder.swift              # Pure MRU ordering (unit-tested)
 ├── WindowCapture.swift         # Opt-in ScreenCaptureKit window previews (macOS 14+)
-├── SwitcherPanel.swift         # NSPanel overlay with NSVisualEffectView backdrop
+├── SwitcherPanel.swift         # NSPanel overlay with selectable background (solid / HUD / Liquid Glass)
 ├── ThumbnailView.swift         # Individual window cell (preview/icon + title + app name)
 ├── WindowActivator.swift       # AXUIElement window raise / unminimize (off-main, bounded timeout)
 ├── PermissionManager.swift     # Accessibility polling; Screen Recording preflight/request
