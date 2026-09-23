@@ -3,8 +3,11 @@
 //  AltTab — Windows-style Window Switcher for macOS
 //
 //  Global hotkey detection via a CGEvent tap installed at the session level.
-//  Event decoding lives here; the Option-Tab session state lives in
-//  SwitcherStateMachine (pure and unit-tested). The CGEvent callback is a C
+//  Event decoding lives here; the modifier-Tab session state lives in
+//  SwitcherStateMachine (pure and unit-tested). The modifier that opens a
+//  session is the `modifier` setting (Option by default, or Command to
+//  replace the system app switcher — the head-inserted session tap swallows
+//  the Cmd+Tab keyDown before the Dock sees it). The CGEvent callback is a C
 //  function pointer bridged to Swift via Unmanaged<HotkeyManager>. Only
 //  keyDown events are swallowed; flagsChanged is always passed through to
 //  avoid breaking system modifier state. Includes retry logic with
@@ -23,13 +26,19 @@ import Carbon.HIToolbox
 // MARK: - Delegate Protocol
 
 protocol HotkeyDelegate: AnyObject {
-    /// `reverse` is true when the session opened with Option+Shift+Tab —
+    /// `reverse` is true when the session opened with Modifier+Shift+Tab —
     /// the initial selection anchors at the list tail instead of slot 1.
     func hotkeyDidActivate(reverse: Bool)
     func hotkeyDidCycleNext()
     func hotkeyDidCyclePrevious()
     func hotkeyDidConfirm()
     func hotkeyDidCancel()
+    /// Q while the switcher is up: quit the selected window's app. The tap
+    /// session stays active — the delegate trims the list and keeps showing.
+    func hotkeyDidQuitSelected()
+    /// H while the switcher is up: hide the selected window's app; the
+    /// session stays active.
+    func hotkeyDidHideSelected()
 }
 
 // MARK: - HotkeyManager
@@ -37,6 +46,11 @@ protocol HotkeyDelegate: AnyObject {
 final class HotkeyManager {
 
     weak var delegate: HotkeyDelegate?
+
+    /// The modifier that opens/holds a session. Read on every tap callback
+    /// (main thread, same as the setter), so a change from the status menu
+    /// applies to the next keypress with no tap reinstall.
+    var modifier: SwitcherModifier = SwitcherModifier.defaultModifier
 
     private var stateMachine = SwitcherStateMachine()
     private var eventTap: CFMachPort?
@@ -128,7 +142,7 @@ final class HotkeyManager {
     }
 
     /// The system can disable our tap if the callback takes too long. Poll to re-enable.
-    /// If the tap was disabled while the switcher was active, we missed the Option release —
+    /// If the tap was disabled while the switcher was active, we missed the modifier release —
     /// force-cancel to prevent the panel from sticking.
     private func startReEnablePolling() {
         reEnableTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -147,7 +161,7 @@ final class HotkeyManager {
             if !CGEvent.tapIsEnabled(tap: tap) {
                 NSLog("AltTab: Event tap was disabled by system, re-enabling.")
                 CGEvent.tapEnable(tap: tap, enable: true)
-                // If we were active, we missed the Option release — force cancel
+                // If we were active, we missed the modifier release — force cancel
                 self.dispatch(self.stateMachine.handleTapDisabled())
             }
         }
@@ -169,13 +183,13 @@ final class HotkeyManager {
         switch type {
         case .flagsChanged:
             // NEVER swallow flagsChanged — always pass through
-            dispatch(stateMachine.handleFlagsChanged(optionDown: event.flags.contains(.maskAlternate)))
+            dispatch(stateMachine.handleFlagsChanged(modifierDown: event.flags.contains(modifier.flag)))
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
             let (action, swallow) = stateMachine.handleKeyDown(
                 keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
-                optionDown: event.flags.contains(.maskAlternate),
+                modifierDown: event.flags.contains(modifier.flag),
                 shiftDown: event.flags.contains(.maskShift)
             )
             dispatch(action)
@@ -198,6 +212,8 @@ final class HotkeyManager {
             case .cyclePrevious: delegate.hotkeyDidCyclePrevious()
             case .confirm: delegate.hotkeyDidConfirm()
             case .cancel: delegate.hotkeyDidCancel()
+            case .quitSelected: delegate.hotkeyDidQuitSelected()
+            case .hideSelected: delegate.hotkeyDidHideSelected()
             case .none: break
             }
         }

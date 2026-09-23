@@ -26,7 +26,7 @@
   <img src="Screenshots/menu.png" alt="AltTab menu bar menu" width="320">
 </p>
 
-macOS Cmd-Tab switches between *applications*. AltTab switches between *windows* — just like Alt-Tab on Windows. Hold Option, tap Tab to see every open window as a thumbnail, cycle through them, and release to switch.
+macOS Cmd-Tab switches between *applications*. AltTab switches between *windows* — just like Alt-Tab on Windows. Hold Option, tap Tab to see every open window as a thumbnail, cycle through them, and release to switch. Prefer it on the system shortcut? Set **Switcher Key → Command** in the menu and Cmd-Tab becomes a window switcher.
 
 ## Download
 
@@ -61,6 +61,7 @@ If you want extensive customization, use lwouis/alttab. If you want something sm
 ## Features
 
 - **Option-Tab** to activate, cycle with Tab, confirm on release
+- **Switcher Key** setting: Option (default) or **Command** — Command takes over the system Cmd-Tab app switcher while AltTab runs, no system settings changes needed; while the switcher is open, **Q** quits and **H** hides the selected window's app (native Cmd-Tab convention, works in both modes)
 - **Shift-Tab** / Arrow keys to navigate in reverse — and **Option-Shift-Tab** opens the switcher already cycling backward, anchored on the least-recently-used window (new in 1.3.2)
 - **Escape** to cancel without switching
 - **Instant response** — the window list is kept warm by a debounced background refresh between invocations, window-raise runs off the main thread, and app icons are cached, so the switcher appears immediately with fresh contents even after hours of idle (1.3.2)
@@ -74,7 +75,7 @@ If you want extensive customization, use lwouis/alttab. If you want something sm
 - Menu bar utility — no Dock icon, no clutter
 - Launch at Login support (macOS 13+ SMAppService)
 - Zero dependencies — pure Swift + AppKit
-- ~2,700 lines of code, single-purpose, auditable (83 unit tests on the pure-logic core)
+- ~2,800 lines of code, single-purpose, auditable (97 unit tests on the pure-logic core, run in CI)
 
 ## Build from source
 
@@ -164,9 +165,11 @@ open ~/Applications/AltTab.app   # or /Applications — grant again when prompte
 
 | Shortcut | Action |
 |----------|--------|
-| <kbd>Option</kbd> + <kbd>Tab</kbd> | Open switcher, select next window |
+| <kbd>Option</kbd> + <kbd>Tab</kbd> | Open switcher, select next window (<kbd>Cmd</kbd> instead of <kbd>Option</kbd> when Switcher Key is Command) |
 | <kbd>Option</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd> | Open switcher cycling backward (least-recent window first) |
 | <kbd>Tab</kbd> | Cycle forward (while holding Option) |
+| <kbd>Q</kbd> | Quit the selected window's app, keep switching |
+| <kbd>H</kbd> | Hide the selected window's app, keep switching |
 | <kbd>Shift</kbd> + <kbd>Tab</kbd> | Cycle backward |
 | <kbd>←</kbd> <kbd>→</kbd> | Navigate left / right |
 | Release <kbd>Option</kbd> | Switch to selected window |
@@ -176,7 +179,7 @@ open ~/Applications/AltTab.app   # or /Applications — grant again when prompte
 
 ## How It Works
 
-AltTab installs a **CGEvent tap** at the session level to intercept keyboard events globally. A 3-state machine (idle → active → idle) tracks Option hold/release and Tab presses. The event tap includes retry logic with exponential backoff to handle the case where the Accessibility subsystem isn't ready at login time. Window enumeration combines `CGWindowListCopyWindowInfo` (on-screen windows) with `AXUIElement` queries (minimized windows). Window titles are read via `AXUIElement` (`kAXTitleAttribute`), which only requires Accessibility permission — no Screen Recording needed. MRU order is maintained via `NSWorkspace` activation notifications and per-app `AXObserver` callbacks that track focused-window changes — including intra-app switches like Cmd-\`. Between invocations, those same events schedule a debounced, rate-limited background re-gather, so the cached window list the switcher opens from is never stale — even on the first Option-Tab after hours of idle.
+AltTab installs a **CGEvent tap** at the session level to intercept keyboard events globally. A 3-state machine (idle → active → idle) tracks modifier hold/release and Tab presses (the modifier is Option or Command per the Switcher Key setting; in Command mode the head-inserted session tap swallows the Cmd-Tab keyDown before the Dock's app switcher sees it). While the switcher is open every other keyDown is swallowed too, so a chord like Cmd-W can't leak to the frontmost app. The event tap includes retry logic with exponential backoff to handle the case where the Accessibility subsystem isn't ready at login time. Window enumeration combines `CGWindowListCopyWindowInfo` (on-screen windows) with `AXUIElement` queries (minimized windows). Window titles are read via `AXUIElement` (`kAXTitleAttribute`), which only requires Accessibility permission — no Screen Recording needed. MRU order is maintained via `NSWorkspace` activation notifications and per-app `AXObserver` callbacks that track focused-window changes — including intra-app switches like Cmd-\`. Between invocations, those same events schedule a debounced, rate-limited background re-gather, so the cached window list the switcher opens from is never stale — even on the first Option-Tab after hours of idle.
 
 The switcher UI is a **non-activating NSPanel** (`.nonactivatingPanel` style mask) so it floats above all windows without stealing focus. App icons are displayed for each window, served from an in-memory cache (prewarmed at launch) so the panel paints immediately instead of resolving each icon through LaunchServices on the fly. Window activation uses `AXUIElement` to raise the specific window and unminimize if needed; that synchronous AX IPC runs on a background queue with a bounded messaging timeout, so a slow target app can't block the main thread (and stall the switcher).
 
@@ -187,7 +190,7 @@ AltTab/AltTab/
 ├── main.swift                  # App entry point — wires NSApp delegate manually
 ├── AppDelegate.swift           # Lifecycle, menu bar status item, orchestration, session epochs
 ├── HotkeyManager.swift         # CGEvent tap plumbing; decodes events for the state machine
-├── SwitcherStateMachine.swift  # Pure Option-Tab session state machine (unit-tested)
+├── SwitcherStateMachine.swift  # Pure modifier-Tab session state machine + SwitcherModifier setting (unit-tested)
 ├── SwitcherSelection.swift     # Pure per-session selection: initial anchor, cycling, reconcile (unit-tested)
 ├── WindowModel.swift           # CGWindowList + concurrent AX pass per app, warm cache + async refresh
 ├── MRUOrder.swift              # Pure MRU ordering (unit-tested)

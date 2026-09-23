@@ -4,8 +4,9 @@ Guidance for Claude Code sessions in this repo (AltTab — Windows-style window 
 
 ## Build & Test
 
-- `swift test` — unit tests for the `AltTabCore` module via the SPM harness in `Package.swift`; run plainly, no output-truncating pipes. Most suites are pure logic (`MRUOrder`, `SwitcherStateMachine`, `SwitcherSelection`, `GatherMerge`, `Debouncer`), but `WCAGContrastTests` resolves **live OS semantic colors** in both appearances — an OS/SDK update can retune a system color and fail an AA-boundary assertion with no code regression, so check that before hunting phantom logic bugs.
+- `swift test` — unit tests for the `AltTabCore` module via the SPM harness in `Package.swift`; run plainly, no output-truncating pipes. CI runs them on every push/PR (`tests.yml`) and as a gate at the top of `release.yml`, so a red test blocks a release. Most suites are pure logic (`MRUOrder`, `SwitcherStateMachine`, `SwitcherSelection`, `GatherMerge`, `Debouncer`), but `WCAGContrastTests` resolves **live OS semantic colors** in both appearances — an OS/SDK update can retune a system color and fail an AA-boundary assertion with no code regression, so check that before hunting phantom logic bugs.
 - `xcodebuild -project AltTab/AltTab.xcodeproj -scheme AltTab -configuration Release build` — app build
+- **No Xcode, only Command Line Tools?** `swift test` fails with "no such module 'XCTest'" (CLT ships no XCTest) and `xcodebuild` is a dead shim — but `swiftc -typecheck -target arm64-apple-macos13.0 AltTab/AltTab/*.swift` type-checks every app source against the CLT SDK, and a scratch `main.swift` compiled together with a core file (`swiftc AltTab/AltTab/SwitcherStateMachine.swift main.swift`) exercises pure logic without XCTest. Neither runs the real event tap; that needs an installed build.
 - `./build.sh install` — build + install to `~/Applications` (dev installs live there, not `/Applications`)
 - `scripts/package-dmg.sh <version>` — universal (arm64+x86_64) Release, ad-hoc seal, DMG + sha256 into `dist/` (gitignored; CI artifact is canonical)
 - `swift scripts/generate-appicon.swift` — regenerates all AppIcon PNGs parametrically (pure AppKit, no design tools)

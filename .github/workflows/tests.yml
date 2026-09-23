@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    # Same image as the release job: the core module is AppKit-free, but the
+    # test bundle links against the macOS 26 SDK toolchain the app requires.
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Log toolchain
+        run: swift --version
+
+      # Run plainly — no output-truncating pipes (see CLAUDE.md).
+      - name: Unit tests
+        run: swift test

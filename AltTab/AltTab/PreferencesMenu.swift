@@ -3,7 +3,8 @@
 //  AltTab — Windows-style Window Switcher for macOS
 //
 //  Status bar dropdown menu with "Launch at Login" toggle (via SMAppService
-//  on macOS 13+), "Appearance" submenu (System / Light / Dark switcher
+//  on macOS 13+), "Switcher Key" submenu (Option / Command — Command
+//  replaces the system app switcher), "Appearance" submenu (System / Light / Dark switcher
 //  theme override), "Background" submenu (Solid / Transparent / Liquid
 //  Glass on macOS 26+), "Show Window Previews" toggle (ScreenCaptureKit
 //  previews, macOS 14+, requires Screen Recording), About dialog, and Quit.
@@ -26,6 +27,10 @@ final class PreferencesMenu {
     /// Background is Liquid Glass, which is the only style it affects.
     private var glassStrengthItem: NSMenuItem?
 
+    /// Called on the main thread when the user picks a different Switcher
+    /// Key; AppDelegate forwards it to HotkeyManager so it applies at once.
+    var onModifierChanged: ((SwitcherModifier) -> Void)?
+
     init() {
         menu = NSMenu()
         // Manual enablement so the Glass Strength parent can be greyed out;
@@ -38,6 +43,23 @@ final class PreferencesMenu {
         launchItem.target = self
         launchItem.state = Self.isLaunchAtLoginEnabled ? .on : .off
         menu.addItem(launchItem)
+
+        let modifierItem = NSMenuItem(title: "Switcher Key", action: nil, keyEquivalent: "")
+        let modifierMenu = NSMenu()
+        for modifier in SwitcherModifier.allCases {
+            let item = NSMenuItem(title: modifier.title,
+                                  action: #selector(selectModifier(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = modifier.rawValue
+            if modifier == .command {
+                item.toolTip = "Replaces the system Cmd-Tab app switcher while AltTab is running."
+            }
+            modifierMenu.addItem(item)
+        }
+        modifierItem.submenu = modifierMenu
+        menu.addItem(modifierItem)
+        refreshModifierChecks(in: modifierMenu)
 
         let appearanceItem = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
         let appearanceMenu = NSMenu()
@@ -140,6 +162,33 @@ final class PreferencesMenu {
                 alert.informativeText = error.localizedDescription
                 alert.runModal()
             }
+        }
+    }
+
+    // MARK: - Switcher Key
+
+    /// The stored choice; absent means the default (Option).
+    static var currentModifier: SwitcherModifier {
+        SwitcherModifier.resolve(UserDefaults.standard.string(forKey: SwitcherModifier.defaultsKey))
+    }
+
+    @objc private func selectModifier(_ sender: NSMenuItem) {
+        let modifier = SwitcherModifier.resolve(sender.representedObject as? String)
+        if modifier == SwitcherModifier.defaultModifier {
+            UserDefaults.standard.removeObject(forKey: SwitcherModifier.defaultsKey)
+        } else {
+            UserDefaults.standard.set(modifier.rawValue, forKey: SwitcherModifier.defaultsKey)
+        }
+        if let menu = sender.menu {
+            refreshModifierChecks(in: menu)
+        }
+        onModifierChanged?(modifier)
+    }
+
+    private func refreshModifierChecks(in menu: NSMenu) {
+        let current = Self.currentModifier
+        for item in menu.items {
+            item.state = ((item.representedObject as? String) == current.rawValue) ? .on : .off
         }
     }
 

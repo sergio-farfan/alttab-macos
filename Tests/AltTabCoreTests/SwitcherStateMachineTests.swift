@@ -2,7 +2,8 @@
 //  SwitcherStateMachineTests.swift
 //  AltTab — Windows-style Window Switcher for macOS
 //
-//  Unit tests for the Option-Tab session state machine used by HotkeyManager.
+//  Unit tests for the modifier-Tab session state machine used by HotkeyManager,
+//  and for the SwitcherModifier setting that picks Option vs Command.
 //
 //  Author:  Sergio Farfan <sergio.farfan@gmail.com>
 //  License: MIT
@@ -16,36 +17,36 @@ final class SwitcherStateMachineTests: XCTestCase {
 
     // MARK: - Activation
 
-    func testOptionTabActivatesAndSwallows() {
+    func testModifierTabActivatesAndSwallows() {
         var machine = SwitcherStateMachine()
-        let result = machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: false)
+        let result = machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: false)
         XCTAssertEqual(result.action, SwitcherAction.activate)
         XCTAssertTrue(result.swallow)
         XCTAssertTrue(machine.isActive)
     }
 
-    func testOptionShiftTabActivatesBackwardAndSwallows() {
+    func testModifierShiftTabActivatesBackwardAndSwallows() {
         var machine = SwitcherStateMachine()
-        let result = machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: true)
+        let result = machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: true)
         XCTAssertEqual(result.action, SwitcherAction.activateBackward)
         XCTAssertTrue(result.swallow)
         XCTAssertTrue(machine.isActive)
-        // The backward session behaves like any other: Option release confirms.
-        XCTAssertEqual(machine.handleFlagsChanged(optionDown: false), SwitcherAction.confirm)
+        // The backward session behaves like any other: modifier release confirms.
+        XCTAssertEqual(machine.handleFlagsChanged(modifierDown: false), SwitcherAction.confirm)
         XCTAssertFalse(machine.isActive)
     }
 
     func testShiftAloneDoesNotChangeActivationKey() {
         var machine = SwitcherStateMachine()
-        let result = machine.handleKeyDown(keyCode: kVK_Tab, optionDown: false, shiftDown: true)
+        let result = machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: false, shiftDown: true)
         XCTAssertEqual(result.action, SwitcherAction.none)
         XCTAssertFalse(result.swallow)
         XCTAssertFalse(machine.isActive)
     }
 
-    func testTabWithoutOptionPassesThroughWhenIdle() {
+    func testTabWithoutModifierPassesThroughWhenIdle() {
         var machine = SwitcherStateMachine()
-        let result = machine.handleKeyDown(keyCode: kVK_Tab, optionDown: false, shiftDown: false)
+        let result = machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: false, shiftDown: false)
         XCTAssertEqual(result.action, SwitcherAction.none)
         XCTAssertFalse(result.swallow)
         XCTAssertFalse(machine.isActive)
@@ -53,33 +54,71 @@ final class SwitcherStateMachineTests: XCTestCase {
 
     func testOtherKeysPassThroughWhenIdle() {
         var machine = SwitcherStateMachine()
-        let result = machine.handleKeyDown(keyCode: kVK_ANSI_A, optionDown: true, shiftDown: false)
+        let result = machine.handleKeyDown(keyCode: kVK_ANSI_A, modifierDown: true, shiftDown: false)
         XCTAssertEqual(result.action, SwitcherAction.none)
         XCTAssertFalse(result.swallow)
+    }
+
+    /// Q/H are only meaningful inside a session — Cmd+Q / Cmd+H in an
+    /// ordinary app must keep working when the switcher is idle.
+    func testQuitAndHideKeysPassThroughWhenIdle() {
+        var machine = SwitcherStateMachine()
+        for key in [kVK_ANSI_Q, kVK_ANSI_H] {
+            let result = machine.handleKeyDown(keyCode: key, modifierDown: true, shiftDown: false)
+            XCTAssertEqual(result.action, SwitcherAction.none)
+            XCTAssertFalse(result.swallow)
+        }
+        XCTAssertFalse(machine.isActive)
     }
 
     // MARK: - Cycling
 
     func testCyclingWhileActive() {
         var machine = activated()
-        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: false).action, SwitcherAction.cycleNext)
-        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: true).action, SwitcherAction.cyclePrevious)
-        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_RightArrow, optionDown: true, shiftDown: false).action, SwitcherAction.cycleNext)
-        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_LeftArrow, optionDown: true, shiftDown: false).action, SwitcherAction.cyclePrevious)
+        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: false).action, SwitcherAction.cycleNext)
+        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: true).action, SwitcherAction.cyclePrevious)
+        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_RightArrow, modifierDown: true, shiftDown: false).action, SwitcherAction.cycleNext)
+        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_LeftArrow, modifierDown: true, shiftDown: false).action, SwitcherAction.cyclePrevious)
         XCTAssertTrue(machine.isActive)
     }
 
     func testCyclingSwallowsEvents() {
         var machine = activated()
-        XCTAssertTrue(machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: false).swallow)
-        XCTAssertTrue(machine.handleKeyDown(keyCode: kVK_LeftArrow, optionDown: true, shiftDown: false).swallow)
+        XCTAssertTrue(machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: false).swallow)
+        XCTAssertTrue(machine.handleKeyDown(keyCode: kVK_LeftArrow, modifierDown: true, shiftDown: false).swallow)
     }
 
-    func testUnhandledKeyWhileActivePassesThrough() {
+    /// While the switcher is up the modifier is still held, so any key that
+    /// leaked would land on the frontmost app as a chord (Cmd+W, Cmd+A …).
+    /// Unhandled keys are swallowed, do nothing, and keep the session alive.
+    func testUnhandledKeyWhileActiveIsSwallowed() {
         var machine = activated()
-        let result = machine.handleKeyDown(keyCode: kVK_ANSI_A, optionDown: true, shiftDown: false)
-        XCTAssertEqual(result.action, SwitcherAction.none)
-        XCTAssertFalse(result.swallow)
+        for key in [kVK_ANSI_A, kVK_ANSI_W, kVK_Space, kVK_Delete] {
+            let result = machine.handleKeyDown(keyCode: key, modifierDown: true, shiftDown: false)
+            XCTAssertEqual(result.action, SwitcherAction.none)
+            XCTAssertTrue(result.swallow, "key \(key) leaked to the frontmost app")
+            XCTAssertTrue(machine.isActive)
+        }
+    }
+
+    // MARK: - Quit / Hide selected app
+
+    func testQuitKeyWhileActiveQuitsSelectedAndKeepsSession() {
+        var machine = activated()
+        let result = machine.handleKeyDown(keyCode: kVK_ANSI_Q, modifierDown: true, shiftDown: false)
+        XCTAssertEqual(result.action, SwitcherAction.quitSelected)
+        XCTAssertTrue(result.swallow)
+        XCTAssertTrue(machine.isActive)
+        // Still switching: Tab keeps cycling, release still confirms.
+        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: false).action, SwitcherAction.cycleNext)
+        XCTAssertEqual(machine.handleFlagsChanged(modifierDown: false), SwitcherAction.confirm)
+    }
+
+    func testHideKeyWhileActiveHidesSelectedAndKeepsSession() {
+        var machine = activated()
+        let result = machine.handleKeyDown(keyCode: kVK_ANSI_H, modifierDown: true, shiftDown: false)
+        XCTAssertEqual(result.action, SwitcherAction.hideSelected)
+        XCTAssertTrue(result.swallow)
         XCTAssertTrue(machine.isActive)
     }
 
@@ -87,7 +126,7 @@ final class SwitcherStateMachineTests: XCTestCase {
 
     func testEscapeCancelsAndEndsSession() {
         var machine = activated()
-        let result = machine.handleKeyDown(keyCode: kVK_Escape, optionDown: true, shiftDown: false)
+        let result = machine.handleKeyDown(keyCode: kVK_Escape, modifierDown: true, shiftDown: false)
         XCTAssertEqual(result.action, SwitcherAction.cancel)
         XCTAssertTrue(result.swallow)
         XCTAssertFalse(machine.isActive)
@@ -95,26 +134,26 @@ final class SwitcherStateMachineTests: XCTestCase {
 
     func testReturnConfirmsAndEndsSession() {
         var machine = activated()
-        let result = machine.handleKeyDown(keyCode: kVK_Return, optionDown: true, shiftDown: false)
+        let result = machine.handleKeyDown(keyCode: kVK_Return, modifierDown: true, shiftDown: false)
         XCTAssertEqual(result.action, SwitcherAction.confirm)
         XCTAssertTrue(result.swallow)
         XCTAssertFalse(machine.isActive)
     }
 
-    func testOptionReleaseConfirmsWhileActive() {
+    func testModifierReleaseConfirmsWhileActive() {
         var machine = activated()
-        XCTAssertEqual(machine.handleFlagsChanged(optionDown: false), SwitcherAction.confirm)
+        XCTAssertEqual(machine.handleFlagsChanged(modifierDown: false), SwitcherAction.confirm)
         XCTAssertFalse(machine.isActive)
     }
 
-    func testOptionReleaseIsNoOpWhenIdle() {
+    func testModifierReleaseIsNoOpWhenIdle() {
         var machine = SwitcherStateMachine()
-        XCTAssertEqual(machine.handleFlagsChanged(optionDown: false), SwitcherAction.none)
+        XCTAssertEqual(machine.handleFlagsChanged(modifierDown: false), SwitcherAction.none)
     }
 
-    func testOptionStillDownIsNoOpWhileActive() {
+    func testModifierStillDownIsNoOpWhileActive() {
         var machine = activated()
-        XCTAssertEqual(machine.handleFlagsChanged(optionDown: true), SwitcherAction.none)
+        XCTAssertEqual(machine.handleFlagsChanged(modifierDown: true), SwitcherAction.none)
         XCTAssertTrue(machine.isActive)
     }
 
@@ -131,25 +170,53 @@ final class SwitcherStateMachineTests: XCTestCase {
         var machine = activated()
         machine.cancelSession()
         XCTAssertFalse(machine.isActive)
-        // Option release after a click-confirm must not re-confirm...
-        XCTAssertEqual(machine.handleFlagsChanged(optionDown: false), SwitcherAction.none)
-        // ...and Option-Tab can start a fresh session immediately.
-        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: false).action, SwitcherAction.activate)
+        // Modifier release after a click-confirm must not re-confirm...
+        XCTAssertEqual(machine.handleFlagsChanged(modifierDown: false), SwitcherAction.none)
+        // ...and Modifier-Tab can start a fresh session immediately.
+        XCTAssertEqual(machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: false).action, SwitcherAction.activate)
     }
 
-    func testEscapeThenTabWhileOptionHeldReactivates() {
+    func testEscapeThenTabWhileModifierHeldReactivates() {
         var machine = activated()
-        _ = machine.handleKeyDown(keyCode: kVK_Escape, optionDown: true, shiftDown: false)
-        let result = machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: false)
+        _ = machine.handleKeyDown(keyCode: kVK_Escape, modifierDown: true, shiftDown: false)
+        let result = machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: false)
         XCTAssertEqual(result.action, SwitcherAction.activate)
         XCTAssertTrue(machine.isActive)
+    }
+
+    // MARK: - SwitcherModifier setting
+
+    func testModifierDefaultIsOption() {
+        XCTAssertEqual(SwitcherModifier.defaultModifier, SwitcherModifier.option)
+        XCTAssertEqual(SwitcherModifier.resolve(nil), SwitcherModifier.option)
+        XCTAssertEqual(SwitcherModifier.resolve("garbage"), SwitcherModifier.option)
+    }
+
+    func testModifierResolvesStoredValues() {
+        XCTAssertEqual(SwitcherModifier.resolve("option"), SwitcherModifier.option)
+        XCTAssertEqual(SwitcherModifier.resolve("command"), SwitcherModifier.command)
+    }
+
+    /// The flag is the ONLY thing HotkeyManager tests against CGEventFlags, so
+    /// a wrong bit would silently bind the switcher to the wrong key.
+    func testModifierFlagsMapToTheRightModifierBits() {
+        XCTAssertEqual(SwitcherModifier.option.flag, CGEventFlags.maskAlternate)
+        XCTAssertEqual(SwitcherModifier.command.flag, CGEventFlags.maskCommand)
+        XCTAssertFalse(CGEventFlags.maskAlternate.contains(SwitcherModifier.command.flag))
+        XCTAssertFalse(CGEventFlags.maskCommand.contains(SwitcherModifier.option.flag))
+    }
+
+    func testModifierRawValuesRoundTripThroughDefaultsStrings() {
+        for modifier in SwitcherModifier.allCases {
+            XCTAssertEqual(SwitcherModifier.resolve(modifier.rawValue), modifier)
+        }
     }
 
     // MARK: - Helpers
 
     private func activated() -> SwitcherStateMachine {
         var machine = SwitcherStateMachine()
-        _ = machine.handleKeyDown(keyCode: kVK_Tab, optionDown: true, shiftDown: false)
+        _ = machine.handleKeyDown(keyCode: kVK_Tab, modifierDown: true, shiftDown: false)
         return machine
     }
 }

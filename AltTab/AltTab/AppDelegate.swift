@@ -5,7 +5,8 @@
 //  Application lifecycle and orchestration. Sets up the menu bar status item,
 //  manages permissions, and coordinates the hotkey manager, window model,
 //  preview capture, and switcher panel. Implements HotkeyDelegate to respond
-//  to Option-Tab state machine transitions. Activation shows the cached
+//  to modifier-Tab state machine transitions (Option by default, Command
+//  when the Switcher Key setting replaces the system app switcher). Activation shows the cached
 //  window list instantly, then reconciles against a fresh gather off the
 //  main thread; async completions are guarded by a session epoch so a stale
 //  refresh or preview can never touch a newer switcher session.
@@ -56,14 +57,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
         switcherPanel.onWindowClicked = { [weak self] index in
             guard let self = self, self.switcherActive, index < self.currentWindows.count else { return }
             self.selection.select(index: index)
-            // Option may still be held — end the tap session so its release
-            // doesn't re-confirm and Tab can start a fresh session.
+            // The modifier may still be held — end the tap session so its
+            // release doesn't re-confirm and Tab can start a fresh session.
             self.hotkeyManager.cancelSession()
             self.hotkeyDidConfirm()
         }
 
         hotkeyManager = HotkeyManager()
         hotkeyManager.delegate = self
+        hotkeyManager.modifier = PreferencesMenu.currentModifier
+        preferencesMenu.onModifierChanged = { [weak self] modifier in
+            self?.hotkeyManager.modifier = modifier
+            NSLog("AltTab: Switcher Key set to %@", modifier.rawValue)
+        }
 
         if AXIsProcessTrusted() {
             hotkeyManager.start()
@@ -107,7 +113,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
                 button.image = img
             } else {
                 // Fallback if SF Symbol unavailable
-                button.title = "⌥⇥"
+                button.title = PreferencesMenu.currentModifier.symbol + "⇥"
             }
         }
         preferencesMenu = PreferencesMenu()
@@ -185,6 +191,48 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyDelegate {
 
     func hotkeyDidCancel() {
         dismissSwitcher()
+    }
+
+    // MARK: - Quit / Hide selected app (Q / H while the switcher is up)
+
+    func hotkeyDidQuitSelected() {
+        guard let app = selectedRunningApplication() else { return }
+        NSLog("AltTab: quitting %@ (pid %d) from the switcher", app.localizedName ?? "?", app.processIdentifier)
+        app.terminate()
+        // Drop its windows from the session right away instead of waiting for
+        // the termination notification → debounced re-gather. The session
+        // stays open (native Cmd+Tab convention) unless nothing is left.
+        let pid = app.processIdentifier
+        let remaining = currentWindows.filter { $0.ownerPID != pid }
+        guard !remaining.isEmpty else {
+            hotkeyManager.cancelSession()
+            dismissSwitcher()
+            return
+        }
+        currentWindows = remaining
+        // After a cycle the selection follows its window ID; that ID is gone,
+        // so reconcile lands on the same slot — now the next window. Before a
+        // cycle it re-anchors against the (possibly quit) focused window.
+        selection.reconcile(windowIDs: remaining.map { $0.windowID },
+                            focusedWindowID: sessionFocusedID)
+        switcherPanel.show(windows: remaining, selectedIndex: selection.selectedIndex)
+    }
+
+    func hotkeyDidHideSelected() {
+        guard let app = selectedRunningApplication() else { return }
+        NSLog("AltTab: hiding %@ (pid %d) from the switcher", app.localizedName ?? "?", app.processIdentifier)
+        app.hide()
+        // Hidden apps stay listed (the switcher includes ⌘H-hidden windows),
+        // so the panel needs no rebuild and the selection stays put.
+    }
+
+    /// The app owning the highlighted window, or nil when there is no live
+    /// session / selection. Never AltTab itself.
+    private func selectedRunningApplication() -> NSRunningApplication? {
+        guard switcherActive, selection.selectedIndex < currentWindows.count else { return nil }
+        let pid = currentWindows[selection.selectedIndex].ownerPID
+        guard pid != ProcessInfo.processInfo.processIdentifier else { return nil }
+        return NSRunningApplication(processIdentifier: pid)
     }
 
     // MARK: - Refresh & Previews

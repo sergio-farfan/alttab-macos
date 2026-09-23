@@ -5,6 +5,18 @@ All notable changes to AltTab will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-09-23
+
+### Added
+
+- **Switcher Key** (status menu): Option (default) or **Command**. Command makes Cmd-Tab open AltTab's window switcher in place of the system app switcher — the session-level event tap swallows the Cmd-Tab keyDown before the Dock sees it, so no Keyboard Shortcuts changes are needed. Applies to the next keypress, no relaunch. The choice lives in the pure `SwitcherModifier` type (unit-tested).
+- **Q / H while the switcher is open** quit or hide the selected window's app and keep the switcher up (native Cmd-Tab convention; both modifier modes). A quit app's windows leave the list immediately.
+
+### Changed
+
+- **CI runs the unit tests**: `swift test` now gates the release workflow (before anything is built) and runs on every push and pull request via the new `tests.yml`. Until now the suite was only ever compiled, never executed in CI.
+- While a switcher session is active, **every other keyDown is swallowed** (previously passed through). The modifier is still held, so a leaked key would reach the frontmost app as a chord — with Command as the modifier that was a fumbled Cmd-Q/Cmd-W on the wrong window.
+
 ## [1.3.3] - 2026-09-19
 
 ### Added
@@ -147,6 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build/install script with `--system` flag for /Applications
 - Shift-Tab, Arrow keys, Escape, Enter, and mouse click navigation
 
+[1.3.4]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.3.4
 [1.3.3]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.3.3
 [1.3.2]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.3.2
 [1.3.1]: https://github.com/sergio-farfan/alttab-macos/releases/tag/v1.3.1

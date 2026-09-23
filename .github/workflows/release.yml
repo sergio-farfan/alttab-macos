@@ -50,6 +50,14 @@ jobs:
       - name: Log toolchain
         run: xcodebuild -version
 
+      # Gate: the pure-logic core's unit tests (AltTabCore via Package.swift).
+      # Run plainly — no output-truncating pipes (see CLAUDE.md). Note that
+      # WCAGContrastTests resolves live OS semantic colors, so an OS/SDK
+      # retune of a system color can fail an AA-boundary assertion here with
+      # no code regression.
+      - name: Unit tests
+        run: swift test
+
       - name: Resolve version and publish flag
         id: meta
         env:
